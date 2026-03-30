@@ -10,6 +10,21 @@ _In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Line
 > [!WARNING]
 > Symphony is a low-key engineering preview for testing in trusted environments.
 
+## What's Different In This Fork
+
+This fork currently differs from upstream `openai/symphony` in a few practical ways:
+
+- workflow files are expected under `workflows/<repo>/WORKFLOW.md` inside the Symphony checkout
+  instead of living in each target repo root
+- the Elixir launcher builds `bin/symphony.escript` and uses a small `bin/symphony` wrapper script
+- Codex launch commands can be selected by issue state via `codex.command_by_state`
+- the Elixir docs have been updated to reflect the centralized workflow layout and required CLI
+  acknowledgement flag
+
+If you are comparing behavior with upstream, start with
+[elixir/README.md](elixir/README.md) and the checked-in workflow example under
+[workflows/elixir/WORKFLOW.md](workflows/elixir/WORKFLOW.md).
+
 ## Running Symphony
 
 ### Requirements

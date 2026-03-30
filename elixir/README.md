@@ -7,6 +7,18 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 > Symphony Elixir is prototype software intended for evaluation only and is presented as-is.
 > We recommend implementing your own hardened version based on `SPEC.md`.
 
+## Fork-specific differences
+
+Compared with upstream `openai/symphony`, this fork currently changes the Elixir implementation in
+these ways:
+
+- the default workflow file lives at `../workflows/<repo>/WORKFLOW.md`
+- the launcher is split into `bin/symphony.escript` plus a portable `bin/symphony` wrapper
+- workflow config supports `codex.command_by_state` so different issue states can launch Codex with
+  different commands or models
+- the checked-in workflow example is `../workflows/elixir/WORKFLOW.md`, which is the canonical
+  reference for this fork's current behavior
+
 ## Screenshot
 
 ![Symphony Elixir screenshot](../.github/media/elixir-screenshot.png)
