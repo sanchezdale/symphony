@@ -158,7 +158,7 @@ defmodule SymphonyElixir.Config do
 
   defp codex_command(settings, state_name) when is_binary(state_name) do
     Map.get(
-      settings.codex.command_by_state || %{},
+      settings.codex.command_by_state,
       Schema.normalize_issue_state(state_name),
       settings.codex.command
     )

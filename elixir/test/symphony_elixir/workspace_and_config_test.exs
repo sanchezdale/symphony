@@ -801,6 +801,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert {:ok, merging_runtime_settings} = Config.codex_runtime_settings(nil, issue_state: "Merging")
     assert merging_runtime_settings.command == "codex app-server"
 
+    assert Schema.normalize_command_overrides(nil) == %{}
+
+    assert Schema.normalize_command_overrides(%{
+             "Todo" => "codex --model gpt-5.3-codex-spark app-server",
+             "In Progress" => 123,
+             "Done" => nil
+           }) == %{
+             "todo" => "codex --model gpt-5.3-codex-spark app-server"
+           }
+
+    assert Schema.normalize_command_overrides("invalid") == %{}
+
     explicit_root =
       Path.join(
         System.tmp_dir!(),
