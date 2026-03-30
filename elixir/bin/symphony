@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+escript_path="$script_dir/symphony.escript"
+
+if [ ! -f "$escript_path" ]; then
+  cat >&2 <<MSG
+Symphony launcher is missing $escript_path.
+Build it once with:
+  cd $app_dir
+  mise trust
+  mise install
+  mise exec -- mix build
+MSG
+  exit 1
+fi
+
+find_escript_with_mise() {
+  if ! command -v mise >/dev/null 2>&1; then
+    return 1
+  fi
+
+  (
+    cd "$app_dir"
+    mise exec -- sh -lc 'command -v escript'
+  )
+}
+
+if escript_bin=$(find_escript_with_mise); then
+  exec "$escript_bin" "$escript_path" "$@"
+fi
+
+if command -v escript >/dev/null 2>&1; then
+  exec escript "$escript_path" "$@"
+fi
+
+cat >&2 <<MSG
+Unable to find escript for Symphony.
+Either install/run Symphony's mise toolchain:
+  cd $app_dir
+  mise trust
+  mise install
+  mise exec -- mix build
+or run with an explicit escript binary.
+MSG
+exit 1

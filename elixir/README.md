@@ -32,7 +32,8 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    [Harness engineering](https://openai.com/index/harness-engineering/).
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
-3. Copy this directory's `WORKFLOW.md` to your repo.
+3. Copy this directory's `WORKFLOW.md` to `../workflows/<your-repo-name>/WORKFLOW.md` inside the
+   Symphony checkout.
 4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
@@ -62,8 +63,12 @@ mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
-mise exec -- ./bin/symphony ./WORKFLOW.md
+./bin/symphony
 ```
+
+After the initial build, you can also run that same `./bin/symphony` wrapper from another repo, for
+example `~/code/symphony/elixir/bin/symphony`, and it will resolve Symphony's own Erlang toolchain
+automatically.
 
 ## Configuration
 
@@ -73,7 +78,11 @@ Pass a custom workflow file path to `./bin/symphony` when starting the service:
 ./bin/symphony /path/to/custom/WORKFLOW.md
 ```
 
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+If no path is passed, Symphony defaults to
+`<symphony-repo>/workflows/<current-working-directory-name>/WORKFLOW.md`.
+
+For example, if you launch Symphony while your shell is in `~/code/leftoffapp`, the default
+workflow path becomes `~/code/symphony/workflows/leftoffapp/WORKFLOW.md`.
 
 Optional flags:
 
@@ -164,7 +173,7 @@ The observability UI now runs on a minimal Phoenix stack:
 
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
-- `WORKFLOW.md`: in-repo workflow contract used by local runs
+- `../workflows/`: centralized per-project workflow definitions
 - `../.codex/`: repository-local Codex skills and setup helpers
 
 ## Testing

@@ -158,6 +158,7 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
     embedded_schema do
       field(:command, :string, default: "codex app-server")
+      field(:command_by_state, :map, default: %{})
 
       field(:approval_policy, StringOrMap,
         default: %{
@@ -183,6 +184,7 @@ defmodule SymphonyElixir.Config.Schema do
         attrs,
         [
           :command,
+          :command_by_state,
           :approval_policy,
           :thread_sandbox,
           :turn_sandbox_policy,
@@ -192,6 +194,7 @@ defmodule SymphonyElixir.Config.Schema do
         ],
         empty_values: []
       )
+      |> update_change(:command_by_state, &SymphonyElixir.Config.Schema.normalize_command_overrides/1)
       |> validate_required([:command])
       |> validate_number(:turn_timeout_ms, greater_than: 0)
       |> validate_number(:read_timeout_ms, greater_than: 0)
@@ -333,6 +336,22 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   @doc false
+  @spec normalize_command_overrides(nil | map()) :: map()
+  def normalize_command_overrides(nil), do: %{}
+
+  def normalize_command_overrides(overrides) when is_map(overrides) do
+    Enum.reduce(overrides, %{}, fn
+      {state_name, command}, acc when is_binary(command) ->
+        Map.put(acc, normalize_issue_state(to_string(state_name)), command)
+
+      {_state_name, _command}, acc ->
+        acc
+    end)
+  end
+
+  def normalize_command_overrides(_overrides), do: %{}
+
+  @doc false
   @spec validate_state_limits(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate_state_limits(changeset, field) do
     validate_change(changeset, field, fn ^field, limits ->
@@ -380,7 +399,8 @@ defmodule SymphonyElixir.Config.Schema do
     codex = %{
       settings.codex
       | approval_policy: normalize_keys(settings.codex.approval_policy),
-        turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
+        turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy),
+        command_by_state: normalize_command_overrides(settings.codex.command_by_state)
     }
 
     %{settings | tracker: tracker, workspace: workspace, codex: codex}

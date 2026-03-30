@@ -21,6 +21,7 @@ defmodule SymphonyElixir.Config do
   """
 
   @type codex_runtime_settings :: %{
+          command: String.t(),
           approval_policy: String.t() | map(),
           thread_sandbox: String.t(),
           turn_sandbox_policy: map()
@@ -104,8 +105,11 @@ defmodule SymphonyElixir.Config do
     with {:ok, settings} <- settings() do
       with {:ok, turn_sandbox_policy} <-
              Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+        issue_state = Keyword.get(opts, :issue_state)
+
         {:ok,
          %{
+           command: codex_command(settings, issue_state),
            approval_policy: settings.codex.approval_policy,
            thread_sandbox: settings.codex.thread_sandbox,
            turn_sandbox_policy: turn_sandbox_policy
@@ -151,4 +155,14 @@ defmodule SymphonyElixir.Config do
         "Invalid WORKFLOW.md config: #{inspect(other)}"
     end
   end
+
+  defp codex_command(settings, state_name) when is_binary(state_name) do
+    Map.get(
+      settings.codex.command_by_state || %{},
+      Schema.normalize_issue_state(state_name),
+      settings.codex.command
+    )
+  end
+
+  defp codex_command(settings, _state_name), do: settings.codex.command
 end

@@ -43,9 +43,11 @@ defmodule SymphonyElixir.CLITest do
     refute_received :started
   end
 
-  test "defaults to WORKFLOW.md when workflow path is missing" do
+  test "defaults to the centralized workflow path when workflow path is missing" do
+    expected_path = SymphonyElixir.Workflow.default_workflow_file_path()
+
     deps = %{
-      file_regular?: fn path -> Path.basename(path) == "WORKFLOW.md" end,
+      file_regular?: fn path -> path == expected_path end,
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,

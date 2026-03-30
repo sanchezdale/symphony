@@ -6,11 +6,23 @@ defmodule SymphonyElixir.Workflow do
   alias SymphonyElixir.WorkflowStore
 
   @workflow_file_name "WORKFLOW.md"
+  @workflows_dir_name "workflows"
 
   @spec workflow_file_path() :: Path.t()
   def workflow_file_path do
     Application.get_env(:symphony_elixir, :workflow_file_path) ||
-      Path.join(File.cwd!(), @workflow_file_name)
+      default_workflow_file_path()
+  end
+
+  @spec default_workflow_file_path() :: Path.t()
+  def default_workflow_file_path do
+    repo_name =
+      File.cwd!()
+      |> Path.basename()
+
+    workflows_root()
+    |> Path.join(repo_name)
+    |> Path.join(@workflow_file_name)
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok
@@ -119,5 +131,10 @@ defmodule SymphonyElixir.Workflow do
     end
 
     :ok
+  end
+
+  defp workflows_root do
+    Application.get_env(:symphony_elixir, :workflows_root) ||
+      Path.expand(Path.join([__DIR__, "..", "..", "..", @workflows_dir_name]))
   end
 end
