@@ -11,7 +11,16 @@ from pathlib import Path
 from typing import Callable
 from urllib import error, request
 
-from .config import GUARDRAIL_ACK, ConfigError, RepoConfig, assign_missing_ports, atomic_write_json, load_config, parse_repo
+from .config import (
+    GUARDRAIL_ACK,
+    ConfigError,
+    RepoConfig,
+    assign_missing_ports,
+    atomic_write_json,
+    load_config,
+    load_env_file,
+    parse_repo,
+)
 from .prereqs import CheckResult, run_prerequisite_checks
 
 LOGGER = logging.getLogger("symphony_manager")
@@ -39,6 +48,8 @@ def healthcheck(port: int, timeout_seconds: int) -> bool:
 
 def repo_runtime_env(repo: RepoConfig) -> dict[str, str]:
     env = dict(os.environ)
+    if repo.local_env_path is not None:
+        env.update(load_env_file(repo.local_env_path))
     env.update(repo.env)
     return env
 
@@ -185,6 +196,13 @@ class Supervisor:
             return
 
         repo.logs_root.mkdir(parents=True, exist_ok=True)
+        try:
+            runtime_env = repo_runtime_env(repo)
+        except ConfigError as exc:
+            self.block_repo(state, str(exc))
+            LOGGER.error("Skipping repo %s due to env loading failure: %s", repo.id, exc)
+            return
+
         command = [
             str(Path(self.config["symphony_bin"]).expanduser()),
             GUARDRAIL_ACK,
@@ -198,7 +216,7 @@ class Supervisor:
         process = self.popen_factory(
             command,
             cwd=str(repo.repo_path),
-            env=repo_runtime_env(repo),
+            env=runtime_env,
             text=True,
         )
         state.process = process
@@ -246,6 +264,8 @@ class Supervisor:
             "codex",
             f"{prefix}:repo_path",
             f"{prefix}:workflow_path",
+            f"{prefix}:local_env_path",
+            f"{prefix}:local_env_loaded",
         }
         return [result for result in full_results if result.name in relevant_names or result.name.startswith(f"{prefix}:env:")]
 

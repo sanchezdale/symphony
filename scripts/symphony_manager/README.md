@@ -53,6 +53,7 @@ The default scaffold looks like this:
       "repo_path": "/Users/example/code/example-repo",
       "workflow_path": "/Users/example/code/symphony/workflows/example-repo/WORKFLOW.md",
       "logs_root": "/Users/example/.config/symphony/logs/example-repo",
+      "local_env_path": "/Users/example/code/example-repo/local.env",
       "port": null,
       "enabled": true,
       "env": {}
@@ -66,7 +67,21 @@ Notes:
 - `workflow_path` is explicit for each repo.
 - If `port` is missing, the manager picks a free loopback port in `43100-48999` and writes it back
   to `config.json`.
-- `env` lets you set per-repo environment variables such as `LINEAR_API_KEY`.
+- `local_env_path` points at a simple `KEY=VALUE` file that the manager loads before launch.
+- `env` lets you set per-repo environment variables inline in `config.json`; these override values
+  loaded from `local_env_path`.
+- A typical `local.env` for workflow-driven repo settings might look like:
+
+```dotenv
+LINEAR_API_KEY=lin_api_xxx
+SYMPHONY_PROJECT_SLUG=leftoff-app-9d940c1364f1
+SYMPHONY_WORKSPACE_ROOT=/Users/example/code/symphony-workspaces/leftoff
+SOURCE_REPO_URL=git@github.com:example/leftoff.git
+SOURCE_REPO_BASE_BRANCH=main
+```
+
+- Precedence is: launchd/user shell environment, then `local_env_path`, then `repos[].env`.
+- `check` validates both the env file path and any workflow-required variables resolved through it.
 
 ## Prerequisite Checks
 

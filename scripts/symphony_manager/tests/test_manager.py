@@ -8,7 +8,15 @@ from pathlib import Path
 from unittest import mock
 
 from scripts.symphony_manager.cli import build_parser
-from scripts.symphony_manager.config import ConfigError, assign_missing_ports, atomic_write_json, default_config, load_config, parse_repo
+from scripts.symphony_manager.config import (
+    ConfigError,
+    assign_missing_ports,
+    atomic_write_json,
+    default_config,
+    load_config,
+    load_env_file,
+    parse_repo,
+)
 from scripts.symphony_manager.launchd import build_launchd_plist
 from scripts.symphony_manager.prereqs import run_prerequisite_checks, summarize_results
 from scripts.symphony_manager.supervisor import ManagedProcess, Supervisor
@@ -34,6 +42,7 @@ class ConfigTests(unittest.TestCase):
                 "repo_path": "/tmp/repo-a",
                 "workflow_path": "/tmp/repo-a/WORKFLOW.md",
                 "logs_root": "/tmp/repo-a/logs",
+                "local_env_path": None,
                 "port": 43110,
                 "enabled": True,
                 "env": {},
@@ -44,6 +53,7 @@ class ConfigTests(unittest.TestCase):
                 "repo_path": "/tmp/repo-b",
                 "workflow_path": "/tmp/repo-b/WORKFLOW.md",
                 "logs_root": "/tmp/repo-b/logs",
+                "local_env_path": None,
                 "port": None,
                 "enabled": True,
                 "env": {},
@@ -65,6 +75,7 @@ class ConfigTests(unittest.TestCase):
                 "repo_path": "/tmp/repo-a",
                 "workflow_path": "/tmp/repo-a/WORKFLOW.md",
                 "logs_root": "/tmp/repo-a/logs",
+                "local_env_path": None,
                 "port": None,
                 "enabled": True,
                 "env": {},
@@ -85,6 +96,7 @@ class ConfigTests(unittest.TestCase):
                 "repo_path": "/tmp/repo-a",
                 "workflow_path": "/tmp/repo-a/WORKFLOW.md",
                 "logs_root": "/tmp/repo-a/logs",
+                "local_env_path": None,
                 "port": None,
                 "enabled": True,
                 "env": {},
@@ -95,6 +107,32 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 assign_missing_ports(config)
 
+    def test_load_env_file_parses_simple_key_value_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "local.env"
+            path.write_text(
+                "# comment\nexport SYMPHONY_PROJECT_SLUG=leftoff\nSYMPHONY_WORKSPACE_ROOT=/tmp/workspaces\n",
+                encoding="utf-8",
+            )
+
+            env = load_env_file(path)
+
+        self.assertEqual(
+            env,
+            {
+                "SYMPHONY_PROJECT_SLUG": "leftoff",
+                "SYMPHONY_WORKSPACE_ROOT": "/tmp/workspaces",
+            },
+        )
+
+    def test_load_env_file_rejects_invalid_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "local.env"
+            path.write_text("NOT_VALID\n", encoding="utf-8")
+
+            with self.assertRaises(ConfigError):
+                load_env_file(path)
+
 
 class PrerequisiteTests(unittest.TestCase):
     def write_config(self, temp_dir: str) -> Path:
@@ -104,6 +142,7 @@ class PrerequisiteTests(unittest.TestCase):
         workflow_path = symphony_repo / "workflows" / "repo-a" / "WORKFLOW.md"
         symphony_bin = symphony_repo / "elixir" / "bin" / "symphony"
         escript_path = symphony_bin.parent / "symphony.escript"
+        local_env_path = repo_path / "local.env"
 
         workflow_path.parent.mkdir(parents=True, exist_ok=True)
         symphony_bin.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +150,7 @@ class PrerequisiteTests(unittest.TestCase):
         workflow_path.write_text("tracker:\n  kind: linear\n", encoding="utf-8")
         symphony_bin.write_text("#!/bin/sh\n", encoding="utf-8")
         escript_path.write_text("escript", encoding="utf-8")
+        local_env_path.write_text("LINEAR_API_KEY=token\n", encoding="utf-8")
 
         config = default_config()
         config["symphony_repo"] = str(symphony_repo)
@@ -122,6 +162,7 @@ class PrerequisiteTests(unittest.TestCase):
                 "repo_path": str(repo_path),
                 "workflow_path": str(workflow_path),
                 "logs_root": str(root / "logs"),
+                "local_env_path": str(local_env_path),
                 "port": 43110,
                 "enabled": True,
                 "env": {},
@@ -149,6 +190,8 @@ class PrerequisiteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = self.write_config(temp_dir)
             env = {"PATH": "/usr/bin", "OSTYPE": "darwin"}
+            config = load_config(config_path)
+            Path(config["repos"][0]["local_env_path"]).unlink()
             with mock.patch("scripts.symphony_manager.prereqs.find_command") as find_command:
                 find_command.side_effect = lambda command, _env=None: {
                     "python3": "/usr/bin/python3",
@@ -190,11 +233,16 @@ class SupervisorTests(unittest.TestCase):
         workflow_path = symphony_repo / "workflows" / "repo-a" / "WORKFLOW.md"
         symphony_bin = symphony_repo / "elixir" / "bin" / "symphony"
         escript_path = symphony_bin.parent / "symphony.escript"
+        local_env_path = repo_path / "local.env"
         for path in [workflow_path.parent, symphony_bin.parent, repo_path]:
             path.mkdir(parents=True, exist_ok=True)
         workflow_path.write_text("tracker:\n  kind: memory\n", encoding="utf-8")
         symphony_bin.write_text("#!/bin/sh\n", encoding="utf-8")
         escript_path.write_text("escript", encoding="utf-8")
+        local_env_path.write_text(
+            "SYMPHONY_PROJECT_SLUG=leftoff\nSYMPHONY_WORKSPACE_ROOT=/tmp/workspaces\n",
+            encoding="utf-8",
+        )
         config = default_config()
         config["symphony_repo"] = str(symphony_repo)
         config["symphony_bin"] = str(symphony_bin)
@@ -206,6 +254,7 @@ class SupervisorTests(unittest.TestCase):
                 "repo_path": str(repo_path),
                 "workflow_path": str(workflow_path),
                 "logs_root": str(root / "logs"),
+                "local_env_path": str(local_env_path),
                 "port": 43110,
                 "enabled": True,
                 "env": {},
@@ -232,6 +281,24 @@ class SupervisorTests(unittest.TestCase):
 
             self.assertEqual(len(spawned), 1)
             self.assertIn("--port", spawned[0])
+
+    def test_supervisor_passes_loaded_local_env_to_process(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = self.make_config(temp_dir)
+            spawned_envs: list[dict[str, str]] = []
+
+            def fake_popen(command, **kwargs):
+                spawned_envs.append(dict(kwargs["env"]))
+                return FakeProcess()
+
+            with mock.patch("scripts.symphony_manager.supervisor.run_prerequisite_checks") as checks:
+                checks.return_value = []
+                supervisor = Supervisor(config_path=config_path, popen_factory=fake_popen, healthcheck_fn=lambda *_: True)
+                supervisor.reload_config_if_needed(force=True)
+                supervisor.reconcile()
+
+            self.assertEqual(spawned_envs[0]["SYMPHONY_PROJECT_SLUG"], "leftoff")
+            self.assertEqual(spawned_envs[0]["SYMPHONY_WORKSPACE_ROOT"], "/tmp/workspaces")
 
     def test_supervisor_restarts_on_process_exit(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

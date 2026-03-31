@@ -45,13 +45,16 @@ Common options:
    run the prerequisite checker to see what is missing.
 2. Scaffold config with `init` or `setup`.
 3. Edit `~/.config/symphony/config.json` so each repo has real `repo_path`,
-   `workflow_path`, and any required `env`.
-4. Run `check --require-launchd` and fix every reported failure before launchd
+   `workflow_path`, and preferably a `local_env_path` for workflow variables.
+4. Put repo-specific secrets and workflow inputs such as `LINEAR_API_KEY`,
+   `SYMPHONY_PROJECT_SLUG`, and `SYMPHONY_WORKSPACE_ROOT` in that `local.env`
+   file unless the user explicitly wants inline `repos[].env` overrides.
+5. Run `check --require-launchd` and fix every reported failure before launchd
    setup.
-5. Generate the plist with `plist`.
-6. Only if the user wants it, provide or run the manual `launchctl bootstrap`
+6. Generate the plist with `plist`.
+7. Only if the user wants it, provide or run the manual `launchctl bootstrap`
    and `launchctl kickstart` commands.
-7. For foreground debugging, use `run --verbose`.
+8. For foreground debugging, use `run --verbose`.
 
 ## Guardrails
 
@@ -59,6 +62,8 @@ Common options:
   `symphony.escript`; use `check` to verify.
 - Do not install or load the launchd plist unless the user explicitly asks.
 - Keep `workflow_path` explicit per repo; do not silently derive it.
+- Prefer `local_env_path` for repo-specific runtime variables and use
+  `repos[].env` only for explicit per-repo overrides.
 - Treat failing prerequisite checks as blockers, not warnings.
 - If the user asks for a ready-to-paste config, generate JSON that matches the
   manager schema in `scripts/symphony_manager/README.md`.

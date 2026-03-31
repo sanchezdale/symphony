@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .config import ConfigError, load_config, parse_repo
+from .config import ConfigError, load_config, load_env_file, parse_repo
 
 
 @dataclass(frozen=True)
@@ -163,17 +163,55 @@ def run_prerequisite_checks(
             )
         )
 
+        local_env: dict[str, str] = {}
+        if repo.local_env_path is not None:
+            results.append(
+                path_check(
+                    f"{prefix}:local_env_path",
+                    repo.local_env_path,
+                    "file",
+                    f"Create the env file at {repo.local_env_path}, or update `local_env_path`.",
+                )
+            )
+
+            if repo.local_env_path.is_file():
+                try:
+                    local_env = load_env_file(repo.local_env_path)
+                    results.append(
+                        CheckResult(
+                            name=f"{prefix}:local_env_loaded",
+                            passed=True,
+                            detail=f"Loaded {len(local_env)} variable(s) from {repo.local_env_path}",
+                        )
+                    )
+                except ConfigError as exc:
+                    results.append(
+                        CheckResult(
+                            name=f"{prefix}:local_env_loaded",
+                            passed=False,
+                            detail=str(exc),
+                            fix=f"Fix the env file syntax in {repo.local_env_path}.",
+                        )
+                    )
+
         required_env = parse_workflow_env_requirements(repo.workflow_path)
         effective_env = dict(active_env)
+        effective_env.update(local_env)
         effective_env.update(repo.env)
         for variable in sorted(required_env):
             present = bool(effective_env.get(variable))
+            missing_sources = ["export it for the launchd user"]
+            if repo.local_env_path is not None:
+                missing_sources.append(f"add it to `{repo.local_env_path}`")
+            else:
+                missing_sources.append(f"set `local_env_path` for `{repo.id}` and add it there")
+            missing_sources.append(f"set it in repos[].env for `{repo.id}`")
             results.append(
                 CheckResult(
                     name=f"{prefix}:env:{variable}",
                     passed=present,
                     detail=f"{variable} is set" if present else f"{variable} is missing",
-                    fix=f"Export {variable} for the launchd user or set it in repos[].env for `{repo.id}`."
+                    fix=f"{variable}: " + ", or ".join(missing_sources) + "."
                     if not present
                     else None,
                 )

@@ -88,6 +88,7 @@ def prompt_repo_entry() -> dict:
     repo_path = input("Repo path: ").strip()
     workflow_path = input("Workflow path: ").strip()
     logs_root = input("Logs root (blank for default): ").strip()
+    local_env_path = input("Local env path (blank to skip): ").strip()
     port_raw = input("Port (blank for auto): ").strip()
 
     config_dir = DEFAULT_CONFIG_PATH.parent
@@ -97,6 +98,7 @@ def prompt_repo_entry() -> dict:
         "repo_path": repo_path,
         "workflow_path": workflow_path,
         "logs_root": logs_root or str(config_dir / "logs" / repo_id),
+        "local_env_path": local_env_path or None,
         "port": int(port_raw) if port_raw else None,
         "enabled": True,
         "env": {},

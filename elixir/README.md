@@ -208,6 +208,10 @@ codex:
   command: "$CODEX_BIN app-server --model gpt-5.3-codex"
 ```
 
+When you launch workflows through the host-side Symphony manager, you can provide
+those variables from a per-repo `local.env` file via `repos[].local_env_path`
+instead of exporting everything globally.
+
 - If `WORKFLOW.md` is missing or has invalid YAML at startup, Symphony does not boot.
 - If a later reload fails, Symphony keeps running with the last known good workflow and logs the
   reload error until the file is fixed.

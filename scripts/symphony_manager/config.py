@@ -26,6 +26,7 @@ class RepoConfig:
     repo_path: Path
     workflow_path: Path
     logs_root: Path
+    local_env_path: Path | None
     port: int | None
     enabled: bool
     env: dict[str, str]
@@ -57,6 +58,7 @@ def default_config() -> dict[str, Any]:
                 "repo_path": str(home / "code" / "example-repo"),
                 "workflow_path": str(symphony_repo / "workflows" / "example-repo" / "WORKFLOW.md"),
                 "logs_root": str(DEFAULT_CONFIG_DIR / "logs" / "example-repo"),
+                "local_env_path": str(home / "code" / "example-repo" / "local.env"),
                 "port": None,
                 "enabled": True,
                 "env": {},
@@ -175,6 +177,10 @@ def parse_repo(entry: dict[str, Any]) -> RepoConfig:
     repo_path = Path(require_string("repo_path")).expanduser()
     workflow_path = Path(require_string("workflow_path")).expanduser()
     logs_root = Path(require_string("logs_root")).expanduser()
+    local_env_path_raw = entry.get("local_env_path")
+    if local_env_path_raw is not None and (not isinstance(local_env_path_raw, str) or not local_env_path_raw.strip()):
+        raise ConfigError(f"Repo `{repo_id}` field `local_env_path` must be a non-empty string when present")
+    local_env_path = Path(local_env_path_raw).expanduser() if isinstance(local_env_path_raw, str) else None
 
     enabled = entry.get("enabled", True)
     if not isinstance(enabled, bool):
@@ -194,10 +200,41 @@ def parse_repo(entry: dict[str, Any]) -> RepoConfig:
         repo_path=repo_path,
         workflow_path=workflow_path,
         logs_root=logs_root,
+        local_env_path=local_env_path,
         port=port,
         enabled=enabled,
         env=env,
     )
+
+
+def load_env_file(path: Path) -> dict[str, str]:
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"Failed to read env file {path}: {exc}") from exc
+
+    env: dict[str, str] = {}
+    for line_number, raw_line in enumerate(content.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if line.startswith("export "):
+            line = line[7:].strip()
+
+        if "=" not in line:
+            raise ConfigError(f"Invalid env file line {line_number} in {path}: expected KEY=VALUE")
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if not key:
+            raise ConfigError(f"Invalid env file line {line_number} in {path}: missing variable name")
+
+        env[key] = value
+
+    return env
 
 
 def assign_missing_ports(config: dict[str, Any]) -> bool:
