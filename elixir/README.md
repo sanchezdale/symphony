@@ -7,6 +7,18 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 > Symphony Elixir is prototype software intended for evaluation only and is presented as-is.
 > We recommend implementing your own hardened version based on `SPEC.md`.
 
+## Fork-specific differences
+
+Compared with upstream `openai/symphony`, this fork currently changes the Elixir implementation in
+these ways:
+
+- the default workflow file lives at `../workflows/<repo>/WORKFLOW.md`
+- the launcher is split into `bin/symphony.escript` plus a portable `bin/symphony` wrapper
+- workflow config supports `codex.command_by_state` so different issue states can launch Codex with
+  different commands or models
+- the checked-in workflow example is `../workflows/elixir/WORKFLOW.md`, which is the canonical
+  reference for this fork's current behavior
+
 ## Screenshot
 
 ![Symphony Elixir screenshot](../.github/media/elixir-screenshot.png)
@@ -32,7 +44,9 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    [Harness engineering](https://openai.com/index/harness-engineering/).
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
-3. Copy this directory's `WORKFLOW.md` to your repo.
+3. Create `../workflows/<your-repo-name>/WORKFLOW.md` inside the Symphony checkout.
+   - Start from [../workflows/elixir/WORKFLOW.md](../workflows/elixir/WORKFLOW.md) if you want the
+     default Symphony workflow, or adapt one of the other checked-in examples.
 4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
@@ -62,23 +76,70 @@ mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
-mise exec -- ./bin/symphony ./WORKFLOW.md
+./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails
 ```
+
+After the initial build, you can also run that same `./bin/symphony` wrapper from another repo, for
+example `~/code/symphony/elixir/bin/symphony`, and it will resolve Symphony's own Erlang toolchain
+automatically.
 
 ## Configuration
 
 Pass a custom workflow file path to `./bin/symphony` when starting the service:
 
 ```bash
-./bin/symphony /path/to/custom/WORKFLOW.md
+./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails /path/to/custom/WORKFLOW.md
 ```
 
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+If no path is passed, Symphony defaults to
+`<symphony-repo>/workflows/<current-working-directory-name>/WORKFLOW.md`.
+
+For example, if you launch Symphony while your shell is in `~/code/my-repo`, the default
+workflow path becomes `~/code/symphony/workflows/my-repo/WORKFLOW.md`.
+
+Examples:
+
+Run Symphony for the repo in your current shell:
+
+```bash
+cd ~/code/my-repo
+~/code/symphony/elixir/bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails
+```
+
+Run Symphony with an explicit workflow file:
+
+```bash
+cd ~/code/my-repo
+~/code/symphony/elixir/bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  ~/code/symphony/workflows/my-repo/WORKFLOW.md
+```
+
+Run Symphony with logs written outside the repo:
+
+```bash
+cd ~/code/my-repo
+~/code/symphony/elixir/bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  --logs-root ~/var/symphony-my-repo
+```
+
+Run Symphony with the observability dashboard enabled on port `4000`:
+
+```bash
+cd ~/code/my-repo
+~/code/symphony/elixir/bin/symphony \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  --port 4000
+```
 
 Optional flags:
 
 - `--logs-root` tells Symphony to write logs under a different directory (default: `./log`)
 - `--port` also starts the Phoenix observability service (default: disabled)
+- `--i-understand-that-this-will-be-running-without-the-usual-guardrails` is required for every
+  run; without it, the CLI exits with the guardrails acknowledgement banner
 
 The `WORKFLOW.md` file uses YAML front matter for configuration, plus a Markdown body used as the
 Codex session prompt.
@@ -164,8 +225,11 @@ The observability UI now runs on a minimal Phoenix stack:
 
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
-- `WORKFLOW.md`: in-repo workflow contract used by local runs
+- `../workflows/`: centralized per-project workflow definitions
 - `../.codex/`: repository-local Codex skills and setup helpers
+
+The checked-in workflow examples under `../workflows/` are the canonical documentation for current
+workflow behavior. The old in-directory `elixir/WORKFLOW.md` example has been retired.
 
 ## Testing
 

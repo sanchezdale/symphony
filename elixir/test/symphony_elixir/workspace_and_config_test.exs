@@ -775,6 +775,44 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "codex app-server --model gpt-5.3-codex")
     assert Config.settings!().codex.command == "codex app-server --model gpt-5.3-codex"
 
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex app-server",
+      codex_command_by_state: %{
+        "Todo" => "codex --model gpt-5.3-codex-spark app-server",
+        "In Progress" => "codex --model gpt-5.4 app-server"
+      }
+    )
+
+    config = Config.settings!()
+
+    assert config.codex.command_by_state == %{
+             "todo" => "codex --model gpt-5.3-codex-spark app-server",
+             "in progress" => "codex --model gpt-5.4 app-server"
+           }
+
+    assert {:ok, todo_runtime_settings} = Config.codex_runtime_settings(nil, issue_state: "Todo")
+    assert todo_runtime_settings.command == "codex --model gpt-5.3-codex-spark app-server"
+
+    assert {:ok, in_progress_runtime_settings} =
+             Config.codex_runtime_settings(nil, issue_state: "In Progress")
+
+    assert in_progress_runtime_settings.command == "codex --model gpt-5.4 app-server"
+
+    assert {:ok, merging_runtime_settings} = Config.codex_runtime_settings(nil, issue_state: "Merging")
+    assert merging_runtime_settings.command == "codex app-server"
+
+    assert Schema.normalize_command_overrides(nil) == %{}
+
+    assert Schema.normalize_command_overrides(%{
+             "Todo" => "codex --model gpt-5.3-codex-spark app-server",
+             "In Progress" => 123,
+             "Done" => nil
+           }) == %{
+             "todo" => "codex --model gpt-5.3-codex-spark app-server"
+           }
+
+    assert Schema.normalize_command_overrides("invalid") == %{}
+
     explicit_root =
       Path.join(
         System.tmp_dir!(),

@@ -88,7 +88,7 @@ defmodule SymphonyElixir.CoreTest do
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
   end
 
-  test "current WORKFLOW.md file is valid and complete" do
+  test "current default workflow file is valid and complete" do
     original_workflow_path = Workflow.workflow_file_path()
     on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
     Workflow.clear_workflow_file_path()
@@ -149,16 +149,20 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.settings!().tracker.assignee == env_assignee
   end
 
-  test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
+  test "workflow file path defaults to the centralized workflows directory when app env is unset" do
     original_workflow_path = Workflow.workflow_file_path()
+    original_workflows_root = Application.get_env(:symphony_elixir, :workflows_root)
 
     on_exit(fn ->
       Workflow.set_workflow_file_path(original_workflow_path)
+      restore_app_env(:workflows_root, original_workflows_root)
     end)
 
     Workflow.clear_workflow_file_path()
+    Application.put_env(:symphony_elixir, :workflows_root, "/tmp/symphony-workflows")
 
-    assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
+    assert Workflow.workflow_file_path() ==
+             Path.join(["/tmp/symphony-workflows", Path.basename(File.cwd!()), "WORKFLOW.md"])
   end
 
   test "workflow file path resolves from app env when set" do
@@ -942,9 +946,9 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
-  test "in-repo WORKFLOW.md renders correctly" do
+  test "default workflow example renders correctly" do
     workflow_path = Workflow.workflow_file_path()
-    Workflow.set_workflow_file_path(Path.expand("WORKFLOW.md", File.cwd!()))
+    Workflow.set_workflow_file_path(Path.expand("../workflows/elixir/WORKFLOW.md", File.cwd!()))
 
     issue = %Issue{
       identifier: "MT-616",
@@ -1688,6 +1692,111 @@ defmodule SymphonyElixir.CoreTest do
       assert String.contains?(argv_line, "--model gpt-5.3-codex app-server")
       refute String.contains?(argv_line, "--ask-for-approval never")
       refute String.contains?(argv_line, "--sandbox danger-full-access")
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "app server startup command can vary by issue state" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-state-command-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-108")
+      default_codex_binary = Path.join(test_root, "fake-codex-default")
+      todo_codex_binary = Path.join(test_root, "fake-codex-todo")
+      trace_file = Path.join(test_root, "codex-state-command.trace")
+      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
+
+      on_exit(fn ->
+        if is_binary(previous_trace) do
+          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
+        else
+          System.delete_env("SYMP_TEST_CODEx_TRACE")
+        end
+      end)
+
+      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
+      File.mkdir_p!(workspace)
+
+      codex_stub = """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-state-command.trace}"
+      printf 'ARGV:%s\\n' "$0 $*" >> "$trace_file"
+      count=0
+
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-108"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-108"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """
+
+      File.write!(default_codex_binary, codex_stub)
+      File.write!(todo_codex_binary, codex_stub)
+      File.chmod!(default_codex_binary, 0o755)
+      File.chmod!(todo_codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{default_codex_binary} app-server",
+        codex_command_by_state: %{
+          "Todo" => "#{todo_codex_binary} --model gpt-5.3-codex-spark app-server"
+        }
+      )
+
+      todo_issue = %Issue{
+        id: "issue-state-command-todo",
+        identifier: "MT-108",
+        title: "Validate Todo command override",
+        description: "Use the Todo-specific model command",
+        state: "Todo",
+        url: "https://example.org/issues/MT-108",
+        labels: ["backend"]
+      }
+
+      assert {:ok, _result} = AppServer.run(workspace, "Use state-specific command", todo_issue)
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+      assert argv_line = Enum.find(lines, fn line -> String.starts_with?(line, "ARGV:") end)
+      assert String.contains?(argv_line, Path.basename(todo_codex_binary))
+      assert String.contains?(argv_line, "--model gpt-5.3-codex-spark app-server")
+
+      File.rm!(trace_file)
+
+      in_progress_issue = %{todo_issue | id: "issue-state-command-progress", state: "In Progress"}
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Use default command", in_progress_issue)
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+      assert argv_line = Enum.find(lines, fn line -> String.starts_with?(line, "ARGV:") end)
+      assert String.contains?(argv_line, Path.basename(default_codex_binary))
+      refute String.contains?(argv_line, Path.basename(todo_codex_binary))
     after
       File.rm_rf(test_root)
     end
