@@ -3,6 +3,19 @@
 Symphony turns project work into isolated, autonomous implementation runs, allowing teams to manage
 work instead of supervising coding agents.
 
+## Multi-Repo Host Supervisor
+
+This repo also includes a host-side Python utility for managing multiple Symphony instances on one
+machine. See [scripts/symphony_manager/README.md](scripts/symphony_manager/README.md).
+
+It provides:
+
+- a scaffolded per-user config at `~/.config/symphony/config.json`
+- prerequisite checks for a cold host before launchd setup
+- launchd plist generation without automatic installation
+- a long-running supervisor that assigns stable loopback ports, starts one Symphony per repo, and
+  restarts unhealthy processes using `/api/v1/state`
+
 [![Symphony demo video preview](.github/media/symphony-demo-poster.jpg)](.github/media/symphony-demo.mp4)
 
 _In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Linear board for work and spawns agents to handle the tasks. The agents complete the tasks and provide proof of work: CI status, PR review feedback, complexity analysis, and walkthrough videos. When accepted, the agents land the PR safely. Engineers do not need to supervise Codex; they can manage the work at a higher level._
