@@ -388,7 +388,8 @@ defmodule SymphonyElixir.Config.Schema do
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
-        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
+        assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE")),
+        project_slug: resolve_env_value(settings.tracker.project_slug, nil)
     }
 
     workspace = %{
@@ -468,6 +469,8 @@ defmodule SymphonyElixir.Config.Schema do
         value
     end
   end
+
+  defp resolve_env_value(nil, fallback), do: fallback
 
   defp normalize_path_token(value) when is_binary(value) do
     case env_reference_name(value) do

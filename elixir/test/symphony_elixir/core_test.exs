@@ -149,6 +149,23 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.settings!().tracker.assignee == env_assignee
   end
 
+  test "linear project slug resolves from env var reference" do
+    project_slug_env_var = "SYMPHONY_PROJECT_SLUG"
+    previous_project_slug = System.get_env(project_slug_env_var)
+    env_project_slug = "leftoff-app-9d940c1364f1"
+
+    on_exit(fn -> restore_env(project_slug_env_var, previous_project_slug) end)
+    System.put_env(project_slug_env_var, env_project_slug)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_project_slug: "$#{project_slug_env_var}",
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert Config.settings!().tracker.project_slug == env_project_slug
+    assert :ok = Config.validate!()
+  end
+
   test "workflow file path defaults to the centralized workflows directory when app env is unset" do
     original_workflow_path = Workflow.workflow_file_path()
     original_workflows_root = Application.get_env(:symphony_elixir, :workflows_root)

@@ -189,6 +189,7 @@ Notes:
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
+- For env-backed tracker strings such as `tracker.project_slug`, use `$VAR`.
 - For path values, `~` is expanded to the home directory.
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,
   while `codex.command` stays a shell command string and any `$VAR` expansion there happens in the
@@ -197,6 +198,7 @@ Notes:
 ```yaml
 tracker:
   api_key: $LINEAR_API_KEY
+  project_slug: $SYMPHONY_PROJECT_SLUG
 workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
 hooks:
