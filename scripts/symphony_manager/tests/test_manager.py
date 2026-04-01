@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import plistlib
 import socket
 import tempfile
 import unittest
@@ -357,9 +358,19 @@ class LaunchdTests(unittest.TestCase):
             repo_root=Path("/opt/symphony"),
             config_path=Path("/Users/example/.config/symphony/config.json"),
         )
-        text = payload.decode("utf-8")
-        self.assertIn("scripts.symphony_manager", text)
-        self.assertIn("config.json", text)
+        plist = plistlib.loads(payload)
+        self.assertEqual(
+            plist["ProgramArguments"],
+            [
+                "/usr/bin/python3",
+                "-m",
+                "scripts.symphony_manager",
+                "--config",
+                "/Users/example/.config/symphony/config.json",
+                "run",
+            ],
+        )
+        self.assertEqual(plist["EnvironmentVariables"]["PYTHONUNBUFFERED"], "1")
 
 
 class CliTests(unittest.TestCase):

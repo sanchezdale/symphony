@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import plistlib
 from pathlib import Path
 
@@ -19,13 +20,17 @@ def build_launchd_plist(
     stdout_path: Path | None = None,
     stderr_path: Path | None = None,
 ) -> bytes:
+    environment = {"PYTHONUNBUFFERED": "1"}
+    current_path = os.environ.get("PATH")
+    if current_path:
+        environment["PATH"] = current_path
     program_arguments = [
         python_executable,
         "-m",
         "scripts.symphony_manager",
-        "run",
         "--config",
         str(config_path),
+        "run",
     ]
     payload = {
         "Label": label,
@@ -34,7 +39,7 @@ def build_launchd_plist(
         "RunAtLoad": True,
         "KeepAlive": True,
         "ProcessType": "Background",
-        "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
+        "EnvironmentVariables": environment,
         "StandardOutPath": str(stdout_path or DEFAULT_CONFIG_DIR / "manager.log"),
         "StandardErrorPath": str(stderr_path or DEFAULT_CONFIG_DIR / "manager.error.log"),
     }
