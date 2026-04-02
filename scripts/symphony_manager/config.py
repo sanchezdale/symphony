@@ -232,6 +232,9 @@ def load_env_file(path: Path) -> dict[str, str]:
         if not key:
             raise ConfigError(f"Invalid env file line {line_number} in {path}: missing variable name")
 
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", "\""}:
+            value = value[1:-1]
+
         env[key] = value
 
     return env

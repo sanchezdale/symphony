@@ -126,6 +126,24 @@ class ConfigTests(unittest.TestCase):
             },
         )
 
+    def test_load_env_file_strips_matching_quotes_from_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "local.env"
+            path.write_text(
+                'LINEAR_API_KEY="lin_api_123"\nSYMPHONY_PROJECT_SLUG=\'leftoff\'\n',
+                encoding="utf-8",
+            )
+
+            env = load_env_file(path)
+
+        self.assertEqual(
+            env,
+            {
+                "LINEAR_API_KEY": "lin_api_123",
+                "SYMPHONY_PROJECT_SLUG": "leftoff",
+            },
+        )
+
     def test_load_env_file_rejects_invalid_lines(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "local.env"
