@@ -41,14 +41,9 @@ agent:
 codex:
   command: codex app-server
   approval_policy: never
-  thread_sandbox: workspace-write
+  thread_sandbox: danger-full-access
   turn_sandbox_policy:
-    type: workspaceWrite
-    writableRoots:
-      - /Users/daniel/.config/symphony/leftoff
-    readOnlyAccess:
-      type: fullAccess
-    networkAccess: true
+    type: dangerFullAccess
 server:
   host: 127.0.0.1
   port: 4100

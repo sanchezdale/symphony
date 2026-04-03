@@ -42,14 +42,9 @@ agent:
 codex:
   command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh --model gpt-5.3-codex app-server
   approval_policy: never
-  thread_sandbox: workspace-write
+  thread_sandbox: danger-full-access
   turn_sandbox_policy:
-    type: workspaceWrite
-    writableRoots:
-      - /Users/daniel/.config/symphony/symphony
-    readOnlyAccess:
-      type: fullAccess
-    networkAccess: true
+    type: dangerFullAccess
 ---
 
 You are working on the Symphony codebase itself.

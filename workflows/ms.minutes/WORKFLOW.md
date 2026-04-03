@@ -38,14 +38,9 @@ agent:
 codex:
   command: codex app-server
   approval_policy: never
-  thread_sandbox: workspace-write
+  thread_sandbox: danger-full-access
   turn_sandbox_policy:
-    type: workspaceWrite
-    writableRoots:
-      - /Users/daniel/.config/symphony/ms.minutes
-    readOnlyAccess:
-      type: fullAccess
-    networkAccess: true
+    type: dangerFullAccess
 ---
 
 You are working on ms.minutes, which currently includes a Deno scheduler under

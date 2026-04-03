@@ -44,14 +44,9 @@ agent:
 codex:
   command: codex app-server
   approval_policy: never
-  thread_sandbox: workspace-write
+  thread_sandbox: danger-full-access
   turn_sandbox_policy:
-    type: workspaceWrite
-    writableRoots:
-      - /Users/daniel/.config/symphony/mealbuddy
-    readOnlyAccess:
-      type: fullAccess
-    networkAccess: true
+    type: dangerFullAccess
 ---
 
 You are working on MealBuddy, a mixed-stack product with a Go backend, a Svelte
