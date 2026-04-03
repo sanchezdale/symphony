@@ -109,8 +109,10 @@ Completion bar:
 State-specific behavior:
 
 - `Planning`: planning-only lane. Immediately move the issue to `In Progress`,
-  produce a detailed implementation plan with strict acceptance criteria, do
-  not make code changes, then move the issue to `Human Review` for plan review.
+  preserve the current issue description in a comment, replace the issue
+  description with a detailed implementation plan with strict acceptance
+  criteria, do not make code changes, then move the issue to `Human Review`
+  for plan review.
 - `Todo`: implementation-ready and queued for execution.
 - `In Progress`: active implementation and validation.
 - `Human Review`: hard pause for human review. Do not continue implementation,
@@ -126,25 +128,28 @@ Required routing:
 1. If the current state is `Planning`, immediately update the issue state to
    `In Progress`, do planning work only, and treat that `In Progress` session
    as planning-only rather than implementation.
-2. In planning-only `In Progress`, produce or update a concise plan with:
+2. In planning-only `In Progress`, preserve the current issue description in a
+   comment before editing it.
+3. Replace the issue description with a concise plan containing:
    - problem statement
    - assumptions and open questions
    - acceptance criteria
    - validation approach
    - proposed implementation breakdown
-3. After updating the plan, end the run without changing code or branch state,
+4. After updating the description and posting the preserved prior description
+   comment, end the run without changing code or branch state,
    and move the issue to `Human Review`.
-4. If the current state is `Human Review`, stop active work and wait. Do not
+5. If the current state is `Human Review`, stop active work and wait. Do not
    interpret lack of feedback as approval, and do not resume until a human
    manually moves the issue to a new state.
-5. Only begin or resume implementation after a human has manually moved the
+6. Only begin or resume implementation after a human has manually moved the
    issue to `Todo`, `In Progress`, or `Rework`.
-6. When beginning implementation from `Todo`, immediately update the Linear
+7. When beginning implementation from `Todo`, immediately update the Linear
    issue state to `In Progress` before changing code.
-7. When an issue enters `Rework`, begin by reviewing all new human comments
+8. When an issue enters `Rework`, begin by reviewing all new human comments
    added since the last implementation pass, update the plan to reflect each
    actionable item, and only then resume implementation.
-8. If the current state is `Merging`, do only landing work:
+9. If the current state is `Merging`, do only landing work:
    - inspect the existing pull request
    - sync with the base branch
    - rerun validation
