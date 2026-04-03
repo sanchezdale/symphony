@@ -12,12 +12,12 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 Compared with upstream `openai/symphony`, this fork currently changes the Elixir implementation in
 these ways:
 
-- the default workflow file lives at `../workflows/<repo>/WORKFLOW.md`
+- the default workflow file lives at `~/.config/symphony/workflows/<repo>/WORKFLOW.md`
 - the launcher is split into `bin/symphony.escript` plus a portable `bin/symphony` wrapper
 - workflow config supports `codex.command_by_state` so different issue states can launch Codex with
   different commands or models
-- the checked-in workflow example is `../workflows/elixir/WORKFLOW.md`, which is the canonical
-  reference for this fork's current behavior
+- the checked-in workflow example is `../workflows/sample/WORKFLOW.md`, which is the public
+  reference template for this fork's current behavior
 
 ## Screenshot
 
@@ -44,9 +44,9 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    [Harness engineering](https://openai.com/index/harness-engineering/).
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
-3. Create `../workflows/<your-repo-name>/WORKFLOW.md` inside the Symphony checkout.
-   - Start from [../workflows/elixir/WORKFLOW.md](../workflows/elixir/WORKFLOW.md) if you want the
-     default Symphony workflow, or adapt one of the other checked-in examples.
+3. Create `~/.config/symphony/workflows/<your-repo-name>/WORKFLOW.md`.
+   - Start from [../workflows/sample/WORKFLOW.md](../workflows/sample/WORKFLOW.md) and adapt it
+     for your project.
 4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
@@ -92,10 +92,10 @@ Pass a custom workflow file path to `./bin/symphony` when starting the service:
 ```
 
 If no path is passed, Symphony defaults to
-`<symphony-repo>/workflows/<current-working-directory-name>/WORKFLOW.md`.
+`~/.config/symphony/workflows/<current-working-directory-name>/WORKFLOW.md`.
 
 For example, if you launch Symphony while your shell is in `~/code/my-repo`, the default
-workflow path becomes `~/code/symphony/workflows/my-repo/WORKFLOW.md`.
+workflow path becomes `~/.config/symphony/workflows/my-repo/WORKFLOW.md`.
 
 Examples:
 
@@ -113,7 +113,7 @@ Run Symphony with an explicit workflow file:
 cd ~/code/my-repo
 ~/code/symphony/elixir/bin/symphony \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails \
-  ~/code/symphony/workflows/my-repo/WORKFLOW.md
+  ~/.config/symphony/workflows/my-repo/WORKFLOW.md
 ```
 
 Run Symphony with logs written outside the repo:

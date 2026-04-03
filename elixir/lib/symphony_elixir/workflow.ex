@@ -135,6 +135,6 @@ defmodule SymphonyElixir.Workflow do
 
   defp workflows_root do
     Application.get_env(:symphony_elixir, :workflows_root) ||
-      Path.expand(Path.join([__DIR__, "..", "..", "..", @workflows_dir_name]))
+      Path.expand(Path.join("~/.config/symphony", @workflows_dir_name))
   end
 end

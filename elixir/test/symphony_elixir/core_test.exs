@@ -1001,7 +1001,7 @@ defmodule SymphonyElixir.CoreTest do
 
   test "default workflow example renders correctly" do
     workflow_path = Workflow.workflow_file_path()
-    Workflow.set_workflow_file_path(Path.expand("../workflows/elixir/WORKFLOW.md", File.cwd!()))
+    Workflow.set_workflow_file_path(Path.expand("../workflows/sample/WORKFLOW.md", File.cwd!()))
 
     issue = %Issue{
       identifier: "MT-616",
