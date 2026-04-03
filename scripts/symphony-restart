@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -eu
+
+LABEL="${SYMPHONY_MANAGER_LABEL:-dev.symphony.manager}"
+PLIST_PATH="${SYMPHONY_MANAGER_PLIST:-$HOME/Library/LaunchAgents/${LABEL}.plist}"
+DOMAIN="gui/$(id -u)"
+SERVICE="${DOMAIN}/${LABEL}"
+
+if [ ! -f "$PLIST_PATH" ]; then
+  echo "LaunchAgent plist not found: $PLIST_PATH" >&2
+  exit 1
+fi
+
+echo "Restarting ${LABEL} via ${PLIST_PATH}"
+
+# For a loaded service, kickstart cleanly restarts the manager in place.
+# If the LaunchAgent is not currently loaded, bootstrap it first.
+if launchctl print "$SERVICE" >/dev/null 2>&1; then
+  launchctl kickstart -k "$SERVICE"
+else
+  launchctl bootstrap "$DOMAIN" "$PLIST_PATH"
+  launchctl kickstart -k "$SERVICE"
+fi
+
+echo "Current service state:"
+launchctl print "$SERVICE" | sed -n '1,12p'
