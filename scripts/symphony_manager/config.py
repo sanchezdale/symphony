@@ -51,6 +51,12 @@ def default_config() -> dict[str, Any]:
             "launchd_log_path": str(DEFAULT_CONFIG_DIR / "manager.log"),
             "launchd_error_log_path": str(DEFAULT_CONFIG_DIR / "manager.error.log"),
         },
+        "notifications": {
+            "enabled": False,
+            "webhook_url": "",
+            "cooldown_seconds": 300,
+            "events": ["approval_required", "turn_input_required", "retrying_issue", "blocked_repo"],
+        },
         "repos": [
             {
                 "id": "example-repo",
@@ -139,6 +145,30 @@ def validate_config(config: dict[str, Any]) -> None:
     end = port_range.get("end")
     if not isinstance(start, int) or not isinstance(end, int) or start <= 0 or end < start:
         raise ConfigError("Manager `port_range` must contain valid integer `start` and `end`")
+
+    notifications = config.get("notifications", {})
+    if notifications is None:
+        notifications = {}
+    if not isinstance(notifications, dict):
+        raise ConfigError("Config `notifications` must be an object when present")
+
+    enabled = notifications.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ConfigError("Notifications field `enabled` must be a boolean")
+
+    webhook_url = notifications.get("webhook_url", "")
+    if enabled and (not isinstance(webhook_url, str) or not webhook_url.strip()):
+        raise ConfigError("Notifications field `webhook_url` must be a non-empty string when notifications are enabled")
+    if webhook_url and not isinstance(webhook_url, str):
+        raise ConfigError("Notifications field `webhook_url` must be a string")
+
+    cooldown_seconds = notifications.get("cooldown_seconds", 300)
+    if not isinstance(cooldown_seconds, int) or cooldown_seconds <= 0:
+        raise ConfigError("Notifications field `cooldown_seconds` must be a positive integer")
+
+    events = notifications.get("events", [])
+    if not isinstance(events, list) or any(not isinstance(event, str) or not event.strip() for event in events):
+        raise ConfigError("Notifications field `events` must be a list of non-empty strings")
 
     repos = config.get("repos")
     if not isinstance(repos, list):

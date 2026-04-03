@@ -227,6 +227,17 @@ The observability UI now runs on a minimal Phoenix stack:
 - Bandit as the HTTP server
 - Phoenix dependency static assets for the LiveView client bootstrap
 
+Current API routes include:
+
+- `GET /api/v1/state`
+- `GET /api/v1/<issue_identifier>`
+- `POST /api/v1/refresh`
+- `POST /api/v1/<issue_identifier>/approve`
+
+`POST /api/v1/<issue_identifier>/approve` is intended for operator fallback when a workflow is not
+running with `codex.approval_policy: never`. Symphony records the pending approval request, queues
+an immediate rerun for that issue, and temporarily forces auto-approval for the next session.
+
 ## Project Layout
 
 - `lib/`: application code and Mix tasks

@@ -7,6 +7,7 @@ import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 from urllib import error, request
@@ -35,15 +36,31 @@ def configure_logging(verbose: bool = False) -> None:
 
 
 def healthcheck(port: int, timeout_seconds: int) -> bool:
+    return fetch_state_payload(port, timeout_seconds) is not None
+
+
+def fetch_state_payload(port: int, timeout_seconds: int) -> dict | None:
     url = f"http://127.0.0.1:{port}/api/v1/state"
     try:
         with request.urlopen(url, timeout=timeout_seconds) as response:
             if response.status != 200:
-                return False
-            json.loads(response.read().decode("utf-8"))
-            return True
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload if isinstance(payload, dict) else None
     except (error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-        return False
+        return None
+
+
+def post_webhook(url: str, payload: dict, timeout_seconds: int) -> None:
+    body = json.dumps(payload, sort_keys=True).encode("utf-8")
+    webhook_request = request.Request(
+        url,
+        data=body,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    with request.urlopen(webhook_request, timeout=timeout_seconds) as response:
+        response.read()
 
 
 def repo_runtime_env(repo: RepoConfig) -> dict[str, str]:
@@ -72,7 +89,10 @@ class Supervisor:
     time_fn: Callable[[], float] = time.time
     popen_factory: Callable[..., subprocess.Popen[str]] = subprocess.Popen
     healthcheck_fn: Callable[[int, int], bool] = healthcheck
+    fetch_state_fn: Callable[[int, int], dict | None] = fetch_state_payload
+    notify_fn: Callable[[str, dict, int], None] = post_webhook
     states: dict[str, ManagedProcess] = field(default_factory=dict)
+    notification_cache: dict[str, float] = field(default_factory=dict)
     _config: dict | None = None
     _config_mtime: float | None = None
 
@@ -169,6 +189,7 @@ class Supervisor:
             if state.failure_count:
                 LOGGER.info("Repo %s recovered after %d failed health check(s)", state.repo.id, state.failure_count)
             state.failure_count = 0
+            self.observe_repo_state(state, self.fetch_state_fn(state.repo.port, timeout_seconds))
             return
 
         state.failure_count += 1
@@ -251,6 +272,18 @@ class Supervisor:
         self.stop_repo(state, f"blocking repo: {reason}")
         state.blocked_reason = reason
         state.blocked_until_config_change = True
+        self.notify_event(
+            "blocked_repo",
+            f"{state.repo.id}:blocked:{reason}",
+            {
+                "repo": {
+                    "id": state.repo.id,
+                    "name": state.repo.name,
+                    "path": str(state.repo.repo_path),
+                },
+                "details": {"reason": reason},
+            },
+        )
 
     def _repo_start_checks(self, repo: RepoConfig) -> list[CheckResult]:
         full_results = run_prerequisite_checks(self.config_path)
@@ -268,6 +301,119 @@ class Supervisor:
             f"{prefix}:local_env_loaded",
         }
         return [result for result in full_results if result.name in relevant_names or result.name.startswith(f"{prefix}:env:")]
+
+    def observe_repo_state(self, state: ManagedProcess, payload: dict | None) -> None:
+        if not isinstance(payload, dict):
+            return
+
+        for issue in payload.get("running", []):
+            pending = issue.get("pending_approval")
+            if isinstance(pending, dict):
+                event_type = pending.get("type")
+                if isinstance(event_type, str) and event_type:
+                    dedupe_source = pending.get("requested_at") or pending.get("summary") or issue.get("issue_identifier")
+                    self.notify_event(
+                        event_type,
+                        f"{state.repo.id}:{issue.get('issue_identifier')}:{event_type}:{dedupe_source}",
+                        {
+                            "repo": {
+                                "id": state.repo.id,
+                                "name": state.repo.name,
+                                "path": str(state.repo.repo_path),
+                                "port": state.repo.port,
+                            },
+                            "issue": {
+                                "id": issue.get("issue_id"),
+                                "identifier": issue.get("issue_identifier"),
+                                "state": issue.get("state"),
+                            },
+                            "details": pending,
+                        },
+                    )
+
+        for issue in payload.get("retrying", []):
+            pending = issue.get("pending_approval")
+            if isinstance(pending, dict):
+                event_type = pending.get("type")
+                if isinstance(event_type, str) and event_type:
+                    dedupe_source = pending.get("requested_at") or pending.get("summary") or issue.get("issue_identifier")
+                    self.notify_event(
+                        event_type,
+                        f"{state.repo.id}:{issue.get('issue_identifier')}:{event_type}:{dedupe_source}",
+                        {
+                            "repo": {
+                                "id": state.repo.id,
+                                "name": state.repo.name,
+                                "path": str(state.repo.repo_path),
+                                "port": state.repo.port,
+                            },
+                            "issue": {
+                                "id": issue.get("issue_id"),
+                                "identifier": issue.get("issue_identifier"),
+                                "attempt": issue.get("attempt"),
+                            },
+                            "details": pending,
+                        },
+                    )
+
+            attempt = issue.get("attempt")
+            if isinstance(attempt, int) and attempt >= 3:
+                self.notify_event(
+                    "retrying_issue",
+                    f"{state.repo.id}:{issue.get('issue_identifier')}:retry:{attempt}",
+                    {
+                        "repo": {
+                            "id": state.repo.id,
+                            "name": state.repo.name,
+                            "path": str(state.repo.repo_path),
+                            "port": state.repo.port,
+                        },
+                        "issue": {
+                            "id": issue.get("issue_id"),
+                            "identifier": issue.get("issue_identifier"),
+                            "attempt": attempt,
+                        },
+                        "details": {
+                            "error": issue.get("error"),
+                            "due_at": issue.get("due_at"),
+                        },
+                    },
+                )
+
+    def notify_event(self, event_type: str, dedupe_key: str, payload: dict) -> None:
+        notifications = self.config.get("notifications", {})
+        if not isinstance(notifications, dict):
+            return
+
+        if notifications.get("enabled") is not True:
+            return
+
+        webhook_url = notifications.get("webhook_url")
+        if not isinstance(webhook_url, str) or not webhook_url.strip():
+            return
+
+        allowed_events = notifications.get("events", [])
+        if isinstance(allowed_events, list) and allowed_events and event_type not in allowed_events:
+            return
+
+        cooldown_seconds = notifications.get("cooldown_seconds", 300)
+        now = self.time_fn()
+        last_sent_at = self.notification_cache.get(dedupe_key)
+        if isinstance(last_sent_at, (int, float)) and now - last_sent_at < cooldown_seconds:
+            return
+
+        envelope = {
+            "source": "symphony_manager",
+            "event": event_type,
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+            **payload,
+        }
+
+        try:
+            self.notify_fn(webhook_url, envelope, self.config["manager"]["http_timeout_seconds"])
+            self.notification_cache[dedupe_key] = now
+        except Exception as exc:  # pragma: no cover - defensive logging
+            LOGGER.warning("Failed sending notification %s: %s", event_type, exc)
 
 
 def install_signal_handlers(supervisor: Supervisor) -> None:

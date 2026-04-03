@@ -152,6 +152,15 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_env_file(path)
 
+    def test_notifications_require_webhook_url_when_enabled(self) -> None:
+        config = default_config()
+        config["repos"] = []
+        config["notifications"]["enabled"] = True
+        config["notifications"]["webhook_url"] = ""
+
+        with self.assertRaises(ConfigError):
+            assign_missing_ports(config)
+
 
 class PrerequisiteTests(unittest.TestCase):
     def write_config(self, temp_dir: str) -> Path:
@@ -366,6 +375,59 @@ class SupervisorTests(unittest.TestCase):
             self.assertIsNone(state.process)
             self.assertEqual(state.failure_count, 0)
             self.assertGreater(state.next_start_time, 0)
+
+    def test_supervisor_emits_webhook_for_pending_approval_once_per_cooldown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = self.make_config(temp_dir)
+            config = load_config(config_path)
+            config["notifications"] = {
+                "enabled": True,
+                "webhook_url": "https://hooks.example.test/symphony",
+                "cooldown_seconds": 300,
+                "events": ["approval_required"],
+            }
+            atomic_write_json(config_path, config)
+
+            notifications: list[tuple[str, dict, int]] = []
+            snapshot = {
+                "running": [
+                    {
+                        "issue_id": "issue-1",
+                        "issue_identifier": "MT-1",
+                        "state": "In Progress",
+                        "pending_approval": {
+                            "type": "approval_required",
+                            "summary": "command approval requested (git push)",
+                            "requested_at": "2026-04-03T12:00:00Z",
+                        },
+                    }
+                ],
+                "retrying": [],
+            }
+
+            def fake_popen(command, **kwargs):
+                return FakeProcess()
+
+            with mock.patch("scripts.symphony_manager.supervisor.run_prerequisite_checks") as checks:
+                checks.return_value = []
+                supervisor = Supervisor(
+                    config_path=config_path,
+                    popen_factory=fake_popen,
+                    healthcheck_fn=lambda *_: True,
+                    fetch_state_fn=lambda *_: snapshot,
+                    notify_fn=lambda url, payload, timeout: notifications.append((url, payload, timeout)),
+                )
+                supervisor.reload_config_if_needed(force=True)
+                supervisor.reconcile()
+                supervisor.reconcile()
+                supervisor.reconcile()
+
+            self.assertEqual(len(notifications), 1)
+            url, payload, timeout = notifications[0]
+            self.assertEqual(url, "https://hooks.example.test/symphony")
+            self.assertEqual(payload["event"], "approval_required")
+            self.assertEqual(payload["issue"]["identifier"], "MT-1")
+            self.assertEqual(timeout, 5)
 
 
 class LaunchdTests(unittest.TestCase):

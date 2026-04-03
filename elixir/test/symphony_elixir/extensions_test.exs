@@ -75,6 +75,15 @@ defmodule SymphonyElixir.ExtensionsTest do
     def handle_call(:request_refresh, _from, state) do
       {:reply, Keyword.get(state, :refresh, :unavailable), state}
     end
+
+    def handle_call({:approve_issue, issue_identifier}, _from, state) do
+      reply =
+        Keyword.get(state, :approve, fn identifier ->
+          {:ok, %{issue_identifier: identifier, decision: "never", queued: true}}
+        end).(issue_identifier)
+
+      {:reply, reply, state}
+    end
   end
 
   setup do
@@ -354,6 +363,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "turn_count" => 7,
                  "last_event" => "notification",
                  "last_message" => "rendered",
+                 "pending_approval" => nil,
                  "started_at" => state_payload["running"] |> List.first() |> Map.fetch!("started_at"),
                  "last_event_at" => nil,
                  "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
@@ -366,6 +376,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "attempt" => 2,
                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
                  "error" => "boom",
+                 "pending_approval" => nil,
                  "worker_host" => nil,
                  "workspace_path" => nil
                }
@@ -400,10 +411,12 @@ defmodule SymphonyElixir.ExtensionsTest do
                "started_at" => issue_payload["running"]["started_at"],
                "last_event" => "notification",
                "last_message" => "rendered",
+               "pending_approval" => nil,
                "last_event_at" => nil,
                "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
              },
              "retry" => nil,
+             "pending_approval" => nil,
              "logs" => %{"codex_session_logs" => []},
              "recent_events" => [],
              "last_error" => nil,
@@ -424,6 +437,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     conn = post(build_conn(), "/api/v1/refresh", %{})
 
     assert %{"queued" => true, "coalesced" => false, "operations" => ["poll", "reconcile"]} =
+             json_response(conn, 202)
+
+    conn = post(build_conn(), "/api/v1/MT-HTTP/approve", %{})
+
+    assert %{"issue_identifier" => "MT-HTTP", "decision" => "never", "queued" => true} =
              json_response(conn, 202)
   end
 
@@ -455,6 +473,14 @@ defmodule SymphonyElixir.ExtensionsTest do
              }
 
     assert json_response(post(build_conn(), "/api/v1/refresh", %{}), 503) ==
+             %{
+               "error" => %{
+                 "code" => "orchestrator_unavailable",
+                 "message" => "Orchestrator is unavailable"
+               }
+             }
+
+    assert json_response(post(build_conn(), "/api/v1/MT-1/approve", %{}), 503) ==
              %{
                "error" => %{
                  "code" => "orchestrator_unavailable",

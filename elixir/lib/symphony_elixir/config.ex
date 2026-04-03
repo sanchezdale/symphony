@@ -106,11 +106,12 @@ defmodule SymphonyElixir.Config do
       with {:ok, turn_sandbox_policy} <-
              Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
         issue_state = Keyword.get(opts, :issue_state)
+        approval_policy = Keyword.get(opts, :approval_policy_override, settings.codex.approval_policy)
 
         {:ok,
          %{
            command: codex_command(settings, issue_state),
-           approval_policy: settings.codex.approval_policy,
+           approval_policy: approval_policy,
            thread_sandbox: settings.codex.thread_sandbox,
            turn_sandbox_policy: turn_sandbox_policy
          }}

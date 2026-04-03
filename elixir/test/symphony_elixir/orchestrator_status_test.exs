@@ -1390,7 +1390,16 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       {"item/commandExecution/requestApproval", %{"params" => %{"parsedCmd" => "git status"}}, "command approval requested (git status)"},
       {"item/fileChange/requestApproval", %{"params" => %{"fileChangeCount" => 2}}, "file change approval requested (2 files)"},
       {"item/tool/call", %{"params" => %{"tool" => "linear_graphql"}}, "dynamic tool call requested (linear_graphql)"},
-      {"item/tool/requestUserInput", %{"params" => %{"question" => "Continue?"}}, "tool requires user input: Continue?"}
+      {"item/tool/requestUserInput", %{"params" => %{"question" => "Continue?"}}, "tool requires user input: Continue?"},
+      {"mcpServer/elicitation/request", %{"params" => %{"question" => "Allow this action?"}}, "tool requires user input: Allow this action?"},
+      {"mcpServer/elicitation/request",
+       %{
+         "params" => %{
+           "questions" => [
+              %{"question" => "The linear MCP server wants to run the tool \"Save issue\", which may modify or delete data. Allow this action?"}
+            ]
+          }
+       }, "tool requires user input: The linear MCP server wants to run the tool \"Save issue\""}
     ]
 
     Enum.each(event_cases, fn {method, payload, expected_fragment} ->
@@ -1498,6 +1507,29 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     humanized = StatusDashboard.humanize_codex_message(message)
     assert humanized =~ "tool requires user input"
     assert humanized =~ "auto-answered"
+  end
+
+  test "status dashboard surfaces mutation prompt details for blocked approval events" do
+    message = %{
+      event: :turn_input_required,
+      message: %{
+        payload: %{
+          "method" => "mcpServer/elicitation/request",
+          "params" => %{
+            "questions" => [
+              %{
+                "question" =>
+                  "The linear MCP server wants to run the tool \"Save issue\", which may modify or delete data. Allow this action?"
+              }
+            ]
+          }
+        }
+      }
+    }
+
+    humanized = StatusDashboard.humanize_codex_message(message)
+    assert humanized =~ "turn blocked"
+    assert humanized =~ "Save issue"
   end
 
   test "status dashboard enriches wrapper reasoning and message streaming events with payload context" do

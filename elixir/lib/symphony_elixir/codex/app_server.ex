@@ -672,6 +672,28 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp maybe_handle_approval_request(
+         port,
+         "mcpServer/elicitation/request",
+         %{"id" => id, "params" => params} = payload,
+         payload_string,
+         on_message,
+         metadata,
+         _tool_executor,
+         auto_approve_requests
+       ) do
+    maybe_auto_answer_tool_request_user_input(
+      port,
+      id,
+      params,
+      payload,
+      payload_string,
+      on_message,
+      metadata,
+      auto_approve_requests
+    )
+  end
+
+  defp maybe_handle_approval_request(
          _port,
          _method,
          _payload,

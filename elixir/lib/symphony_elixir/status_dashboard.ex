@@ -1104,7 +1104,29 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
-  defp humanize_codex_event(:turn_input_required, _message, _payload), do: "turn blocked: waiting for user input"
+  defp humanize_codex_event(:turn_input_required, message, payload) do
+    method =
+      map_value(payload, ["method", :method]) ||
+        map_path(message, ["payload", "method"]) ||
+        map_path(message, [:payload, :method])
+
+    case humanize_codex_method(method, payload) do
+      nil -> "turn blocked: waiting for user input"
+      text -> "turn blocked: #{text}"
+    end
+  end
+
+  defp humanize_codex_event(:approval_required, message, payload) do
+    method =
+      map_value(payload, ["method", :method]) ||
+        map_path(message, ["payload", "method"]) ||
+        map_path(message, [:payload, :method])
+
+    case humanize_codex_method(method, payload) do
+      nil -> "turn blocked: approval required"
+      text -> "turn blocked: #{text}"
+    end
+  end
 
   defp humanize_codex_event(:approval_auto_approved, message, payload) do
     method =
@@ -1348,11 +1370,7 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp humanize_codex_method("item/tool/requestUserInput", payload) do
-    question =
-      map_path(payload, ["params", "question"]) ||
-        map_path(payload, ["params", "prompt"]) ||
-        map_path(payload, [:params, :question]) ||
-        map_path(payload, [:params, :prompt])
+    question = extract_tool_input_question(payload)
 
     if is_binary(question) and String.trim(question) != "" do
       "tool requires user input: #{inline_text(question)}"
@@ -1363,6 +1381,33 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp humanize_codex_method("tool/requestUserInput", payload),
     do: humanize_codex_method("item/tool/requestUserInput", payload)
+
+  defp humanize_codex_method("mcpServer/elicitation/request", payload),
+    do: humanize_codex_method("item/tool/requestUserInput", payload)
+
+  defp extract_tool_input_question(payload) when is_map(payload) do
+    map_path(payload, ["params", "question"]) ||
+      map_path(payload, ["params", "prompt"]) ||
+      map_path(payload, [:params, :question]) ||
+      map_path(payload, [:params, :prompt]) ||
+      first_tool_input_question(payload)
+  end
+
+  defp extract_tool_input_question(_payload), do: nil
+
+  defp first_tool_input_question(payload) when is_map(payload) do
+    payload
+    |> map_path(["params", "questions"])
+    |> normalize_tool_input_questions()
+    |> Enum.find_value(fn question ->
+      map_value(question, ["question", :question]) || map_value(question, ["prompt", :prompt])
+    end)
+  end
+
+  defp first_tool_input_question(_payload), do: nil
+
+  defp normalize_tool_input_questions(questions) when is_list(questions), do: questions
+  defp normalize_tool_input_questions(_questions), do: []
 
   defp humanize_codex_method("account/updated", payload) do
     auth_mode =

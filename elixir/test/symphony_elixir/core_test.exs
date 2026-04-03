@@ -724,6 +724,42 @@ defmodule SymphonyElixir.CoreTest do
     assert {:noreply, ^coalesced_state} = Orchestrator.handle_info({:tick, stale_tick_token}, coalesced_state)
   end
 
+  test "approve_issue queues an immediate retry with a temporary auto-approval override" do
+    pending_requested_at = DateTime.utc_now()
+
+    state = %Orchestrator.State{
+      retry_attempts: %{
+        "issue-approve" => %{
+          attempt: 2,
+          timer_ref: nil,
+          retry_token: make_ref(),
+          due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+          identifier: "MT-APPROVE",
+          error: "approval required",
+          pending_approval: %{
+            type: "approval_required",
+            summary: "command approval requested (git push)",
+            requested_at: pending_requested_at
+          }
+        }
+      },
+      approval_overrides: %{},
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      codex_rate_limits: nil
+    }
+
+    assert {:reply, {:ok, payload}, updated_state} =
+             Orchestrator.handle_call({:approve_issue, "MT-APPROVE"}, {self(), make_ref()}, state)
+
+    assert payload.issue_identifier == "MT-APPROVE"
+    assert payload.decision == "never"
+    assert payload.pending_approval.type == "approval_required"
+    assert payload.pending_approval.requested_at == DateTime.to_iso8601(pending_requested_at)
+    assert updated_state.approval_overrides["issue-approve"] == "never"
+    assert updated_state.retry_attempts["issue-approve"].due_at_ms <= System.monotonic_time(:millisecond)
+    assert is_reference(updated_state.retry_attempts["issue-approve"].timer_ref)
+  end
+
   test "select_worker_host_for_test skips full ssh hosts under the shared per-host cap" do
     write_workflow_file!(Workflow.workflow_file_path(),
       worker_ssh_hosts: ["worker-a", "worker-b"],

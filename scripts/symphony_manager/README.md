@@ -46,6 +46,12 @@ The default scaffold looks like this:
     "restart_backoff_seconds": [5, 15, 30, 60, 300],
     "port_range": {"start": 43100, "end": 48999}
   },
+  "notifications": {
+    "enabled": false,
+    "webhook_url": "",
+    "cooldown_seconds": 300,
+    "events": ["approval_required", "turn_input_required", "retrying_issue", "blocked_repo"]
+  },
   "repos": [
     {
       "id": "example-repo",
@@ -70,6 +76,8 @@ Notes:
 - `local_env_path` points at a simple `KEY=VALUE` file that the manager loads before launch.
 - `env` lets you set per-repo environment variables inline in `config.json`; these override values
   loaded from `local_env_path`.
+- `notifications` is optional and lets the manager POST structured JSON events to a webhook when a
+  repo reports pending approval, repeated retry loops, or a repo becomes manager-blocked.
 - A typical `local.env` for workflow-driven repo settings might look like:
 
 ```dotenv
@@ -82,6 +90,47 @@ SOURCE_REPO_BASE_BRANCH=main
 
 - Precedence is: launchd/user shell environment, then `local_env_path`, then `repos[].env`.
 - `check` validates both the env file path and any workflow-required variables resolved through it.
+
+## Notifications
+
+When `notifications.enabled` is true, the manager polls each repo's observability API and emits
+JSON webhooks for configured event types:
+
+- `approval_required`
+- `turn_input_required`
+- `retrying_issue`
+- `blocked_repo`
+
+Events are deduplicated for `cooldown_seconds` using the repo, issue, and request identity so a
+stuck approval request does not spam the webhook target every poll interval.
+
+The webhook payload shape is:
+
+```json
+{
+  "source": "symphony_manager",
+  "event": "approval_required",
+  "sent_at": "2026-04-03T12:00:00+00:00",
+  "repo": {
+    "id": "leftoff",
+    "name": "LeftOff",
+    "path": "/Users/example/code/leftoff",
+    "port": 43123
+  },
+  "issue": {
+    "id": "issue-123",
+    "identifier": "MT-123",
+    "state": "In Progress"
+  },
+  "details": {
+    "type": "approval_required",
+    "summary": "command approval requested (git push)",
+    "requested_at": "2026-04-03T11:59:00Z"
+  }
+}
+```
+
+Use this with Slack, ntfy, Pushover, or a lightweight relay service.
 
 ## Prerequisite Checks
 

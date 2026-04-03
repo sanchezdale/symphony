@@ -40,10 +40,15 @@ agent:
   max_turns: 12
 codex:
   command: codex app-server
-  approval_policy: on-request
+  approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:
     type: workspaceWrite
+    writableRoots:
+      - /Users/daniel/.config/symphony/leftoff
+    readOnlyAccess:
+      type: fullAccess
+    networkAccess: true
 server:
   host: 127.0.0.1
   port: 4100
@@ -75,20 +80,25 @@ Operating rules:
    making edits.
 6. Favor small, reviewable changes that match existing TypeScript, Vite, and
    Chrome extension patterns already in this repo.
-7. Run targeted validation after meaningful changes, and run `pnpm check`
+7. Keep package-manager and build caches inside the workspace. Prefer:
+   - `PNPM_HOME=$PWD/.pnpm-home`
+   - `PNPM_STORE_DIR=$PWD/.pnpm-store`
+   - `COREPACK_HOME=$PWD/.cache/corepack`
+   - `npm_config_cache=$PWD/.cache/npm`
+8. Run targeted validation after meaningful changes, and run `pnpm check`
    before considering work complete unless a missing dependency or environment
    issue makes that impossible.
-8. Treat browser-extension behavior as high risk around:
+9. Treat browser-extension behavior as high risk around:
    - selection capture and restore logic in `src/contentScript.ts`
    - storage and coordination flow in `src/background.ts`
    - popup actions and saved-item rendering in `popup/`
-9. Do not add compatibility hacks, TODO comments, or broad refactors unless the
+10. Do not add compatibility hacks, TODO comments, or broad refactors unless the
    task explicitly requires them.
-10. If blocked by missing credentials, unavailable tools, or external services,
+11. If blocked by missing credentials, unavailable tools, or external services,
     stop with a concise blocker summary and the exact missing prerequisite.
-11. For implementation work, use a git branch dedicated to the issue and keep
+12. For implementation work, use a git branch dedicated to the issue and keep
     GitHub pull request state in sync with the current task state.
-12. Use the `gh` CLI for GitHub pull request operations instead of web flows.
+13. Use the `gh` CLI for GitHub pull request operations instead of web flows.
 
 Completion bar:
 
@@ -98,14 +108,9 @@ Completion bar:
 
 State-specific behavior:
 
-- `Planning`: do not implement yet. Refine the ticket into an execution-ready
-  plan by clarifying scope, tightening acceptance criteria, listing assumptions,
-  calling out risks, and proposing a concrete task breakdown. If tracker note
-  tooling is available, update the task notes with the improved plan, then
-  stop. Never move the issue out of `Planning` automatically, and never start
-  implementation from `Planning`.
-  A human must review the proposed plan, edit the task if needed, and manually
-  move it to `Todo` when it is ready for implementation.
+- `Planning`: planning-only lane. Immediately move the issue to `In Progress`,
+  produce a detailed implementation plan with strict acceptance criteria, do
+  not make code changes, then move the issue to `Human Review` for plan review.
 - `Todo`: implementation-ready and queued for execution.
 - `In Progress`: active implementation and validation.
 - `Human Review`: hard pause for human review. Do not continue implementation,
@@ -118,24 +123,28 @@ State-specific behavior:
 
 Required routing:
 
-1. If the current state is `Planning`, only do planning work.
-2. In `Planning`, produce or update a concise plan with:
+1. If the current state is `Planning`, immediately update the issue state to
+   `In Progress`, do planning work only, and treat that `In Progress` session
+   as planning-only rather than implementation.
+2. In planning-only `In Progress`, produce or update a concise plan with:
    - problem statement
    - assumptions and open questions
    - acceptance criteria
    - validation approach
    - proposed implementation breakdown
-3. After updating the plan, end the run without changing code, branch, or issue
-   state.
+3. After updating the plan, end the run without changing code or branch state,
+   and move the issue to `Human Review`.
 4. If the current state is `Human Review`, stop active work and wait. Do not
    interpret lack of feedback as approval, and do not resume until a human
    manually moves the issue to a new state.
 5. Only begin or resume implementation after a human has manually moved the
    issue to `Todo`, `In Progress`, or `Rework`.
-6. When an issue enters `Rework`, begin by reviewing all new human comments
+6. When beginning implementation from `Todo`, immediately update the Linear
+   issue state to `In Progress` before changing code.
+7. When an issue enters `Rework`, begin by reviewing all new human comments
    added since the last implementation pass, update the plan to reflect each
    actionable item, and only then resume implementation.
-7. If the current state is `Merging`, do only landing work:
+8. If the current state is `Merging`, do only landing work:
    - inspect the existing pull request
    - sync with the base branch
    - rerun validation

@@ -37,6 +37,25 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
     end
   end
 
+  @spec approve(Conn.t(), map()) :: Conn.t()
+  def approve(conn, %{"issue_identifier" => issue_identifier}) do
+    case SymphonyElixir.Orchestrator.approve_issue(orchestrator(), issue_identifier) do
+      {:ok, payload} ->
+        conn
+        |> put_status(202)
+        |> json(payload)
+
+      {:error, :issue_not_found} ->
+        error_response(conn, 404, "issue_not_found", "Issue not found")
+
+      {:error, :approval_not_pending} ->
+        error_response(conn, 409, "approval_not_pending", "Issue has no pending approval request")
+
+      {:error, :unavailable} ->
+        error_response(conn, 503, "orchestrator_unavailable", "Orchestrator is unavailable")
+    end
+  end
+
   @spec method_not_allowed(Conn.t(), map()) :: Conn.t()
   def method_not_allowed(conn, _params) do
     error_response(conn, 405, "method_not_allowed", "Method not allowed")

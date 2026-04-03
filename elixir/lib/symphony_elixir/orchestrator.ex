@@ -37,6 +37,7 @@ defmodule SymphonyElixir.Orchestrator do
       completed: MapSet.new(),
       claimed: MapSet.new(),
       retry_attempts: %{},
+      approval_overrides: %{},
       codex_totals: nil,
       codex_rate_limits: nil
     ]
@@ -128,6 +129,7 @@ defmodule SymphonyElixir.Orchestrator do
         {running_entry, state} = pop_running_entry(state, issue_id)
         state = record_session_completion_totals(state, running_entry)
         session_id = running_entry_session_id(running_entry)
+        pending_approval = pending_approval_from_running_entry(running_entry)
 
         state =
           case reason do
@@ -148,9 +150,22 @@ defmodule SymphonyElixir.Orchestrator do
 
               next_attempt = next_retry_attempt_from_running(running_entry)
 
+              error =
+                cond do
+                  is_map(pending_approval) and pending_approval.type == "approval_required" ->
+                    "approval required"
+
+                  is_map(pending_approval) and pending_approval.type == "turn_input_required" ->
+                    "operator input required"
+
+                  true ->
+                    "agent exited: #{inspect(reason)}"
+                end
+
               schedule_issue_retry(state, issue_id, next_attempt, %{
                 identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
+                error: error,
+                pending_approval: pending_approval,
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
@@ -691,8 +706,16 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
+    approval_policy_override = Map.get(state.approval_overrides, issue.id)
+
     case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+           AgentRunner.run(
+             issue,
+             recipient,
+             attempt: attempt,
+             worker_host: worker_host,
+             approval_policy_override: approval_policy_override
+           )
          end) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
@@ -727,7 +750,8 @@ defmodule SymphonyElixir.Orchestrator do
           state
           | running: running,
             claimed: MapSet.put(state.claimed, issue.id),
-            retry_attempts: Map.delete(state.retry_attempts, issue.id)
+            retry_attempts: Map.delete(state.retry_attempts, issue.id),
+            approval_overrides: Map.delete(state.approval_overrides, issue.id)
         }
 
       {:error, reason} ->
@@ -766,7 +790,8 @@ defmodule SymphonyElixir.Orchestrator do
     %{
       state
       | completed: MapSet.put(state.completed, issue_id),
-        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+        retry_attempts: Map.delete(state.retry_attempts, issue_id),
+        approval_overrides: Map.delete(state.approval_overrides, issue_id)
     }
   end
 
@@ -782,6 +807,7 @@ defmodule SymphonyElixir.Orchestrator do
     error = pick_retry_error(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
+    pending_approval = pick_retry_pending_approval(previous_retry, metadata)
 
     if is_reference(old_timer) do
       Process.cancel_timer(old_timer)
@@ -803,6 +829,7 @@ defmodule SymphonyElixir.Orchestrator do
             due_at_ms: due_at_ms,
             identifier: identifier,
             error: error,
+            pending_approval: pending_approval,
             worker_host: worker_host,
             workspace_path: workspace_path
           })
@@ -815,6 +842,7 @@ defmodule SymphonyElixir.Orchestrator do
         metadata = %{
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
+          pending_approval: Map.get(retry_entry, :pending_approval),
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path)
         }
@@ -922,7 +950,11 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp release_issue_claim(%State{} = state, issue_id) do
-    %{state | claimed: MapSet.delete(state.claimed, issue_id)}
+    %{
+      state
+      | claimed: MapSet.delete(state.claimed, issue_id),
+        approval_overrides: Map.delete(state.approval_overrides, issue_id)
+    }
   end
 
   defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do
@@ -962,6 +994,14 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp pick_retry_workspace_path(previous_retry, metadata) do
     metadata[:workspace_path] || Map.get(previous_retry, :workspace_path)
+  end
+
+  defp pick_retry_pending_approval(previous_retry, metadata) do
+    if Map.has_key?(metadata, :pending_approval) do
+      metadata[:pending_approval]
+    else
+      Map.get(previous_retry, :pending_approval)
+    end
   end
 
   defp maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
@@ -1097,6 +1137,20 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  @spec approve_issue(String.t()) :: {:ok, map()} | {:error, atom()}
+  def approve_issue(issue_identifier) when is_binary(issue_identifier) do
+    approve_issue(__MODULE__, issue_identifier)
+  end
+
+  @spec approve_issue(GenServer.server(), String.t()) :: {:ok, map()} | {:error, atom()}
+  def approve_issue(server, issue_identifier) when is_binary(issue_identifier) do
+    if Process.whereis(server) do
+      GenServer.call(server, {:approve_issue, issue_identifier})
+    else
+      {:error, :unavailable}
+    end
+  end
+
   @impl true
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
@@ -1122,6 +1176,7 @@ defmodule SymphonyElixir.Orchestrator do
           last_codex_timestamp: metadata.last_codex_timestamp,
           last_codex_message: metadata.last_codex_message,
           last_codex_event: metadata.last_codex_event,
+          pending_approval: pending_approval_from_running_entry(metadata),
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
       end)
@@ -1135,6 +1190,7 @@ defmodule SymphonyElixir.Orchestrator do
           due_in_ms: max(0, due_at_ms - now_ms),
           identifier: Map.get(retry, :identifier),
           error: Map.get(retry, :error),
+          pending_approval: Map.get(retry, :pending_approval),
           worker_host: Map.get(retry, :worker_host),
           workspace_path: Map.get(retry, :workspace_path)
         }
@@ -1152,6 +1208,29 @@ defmodule SymphonyElixir.Orchestrator do
          poll_interval_ms: state.poll_interval_ms
        }
      }, state}
+  end
+
+  def handle_call({:approve_issue, issue_identifier}, _from, state) do
+    case pending_issue_lookup(state, issue_identifier) do
+      {:ok, issue_id, pending_approval} ->
+        state =
+          state
+          |> put_approval_override(issue_id, "never")
+          |> schedule_immediate_retry(issue_id)
+
+        {:reply,
+         {:ok,
+          %{
+            issue_id: issue_id,
+            issue_identifier: issue_identifier,
+            decision: "never",
+            pending_approval: approval_response_payload(pending_approval),
+            queued: true
+          }}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   def handle_call(:request_refresh, _from, state) do
@@ -1240,6 +1319,104 @@ defmodule SymphonyElixir.Orchestrator do
       event: update[:event],
       message: update[:payload] || update[:raw],
       timestamp: update[:timestamp]
+    }
+  end
+
+  defp pending_issue_lookup(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    running_match =
+      Enum.find(state.running, fn
+        {_issue_id, %{identifier: ^issue_identifier}} -> true
+        _ -> false
+      end)
+
+    retry_match =
+      Enum.find(state.retry_attempts, fn
+        {_issue_id, %{identifier: ^issue_identifier}} -> true
+        _ -> false
+      end)
+
+    case {running_match, retry_match} do
+      {{issue_id, running_entry}, _} ->
+        case pending_approval_from_running_entry(running_entry) do
+          nil -> {:error, :approval_not_pending}
+          pending_approval -> {:ok, issue_id, pending_approval}
+        end
+
+      {nil, {issue_id, retry_entry}} ->
+        case Map.get(retry_entry, :pending_approval) do
+          nil -> {:error, :approval_not_pending}
+          pending_approval -> {:ok, issue_id, pending_approval}
+        end
+
+      _ ->
+        {:error, :issue_not_found}
+    end
+  end
+
+  defp put_approval_override(%State{} = state, issue_id, approval_policy_override)
+       when is_binary(issue_id) and is_binary(approval_policy_override) do
+    %{state | approval_overrides: Map.put(state.approval_overrides, issue_id, approval_policy_override)}
+  end
+
+  defp schedule_immediate_retry(%State{} = state, issue_id) when is_binary(issue_id) do
+    case Map.get(state.retry_attempts, issue_id) do
+      %{attempt: attempt} = retry_entry ->
+        if is_reference(retry_entry[:timer_ref]) do
+          Process.cancel_timer(retry_entry.timer_ref)
+        end
+
+        retry_token = make_ref()
+        timer_ref = Process.send_after(self(), {:retry_issue, issue_id, retry_token}, 0)
+
+        retry_attempts =
+          Map.put(state.retry_attempts, issue_id, %{
+            retry_entry
+            | attempt: attempt,
+              timer_ref: timer_ref,
+              retry_token: retry_token,
+              due_at_ms: System.monotonic_time(:millisecond)
+          })
+
+        %{state | retry_attempts: retry_attempts}
+
+      _ ->
+        state
+    end
+  end
+
+  defp pending_approval_from_running_entry(running_entry) when is_map(running_entry) do
+    pending_approval_from_event(
+      Map.get(running_entry, :last_codex_event),
+      Map.get(running_entry, :last_codex_message),
+      Map.get(running_entry, :last_codex_timestamp)
+    )
+  end
+
+  defp pending_approval_from_running_entry(_running_entry), do: nil
+
+  defp pending_approval_from_event(event, message, requested_at)
+       when event in [:approval_required, :turn_input_required] do
+    %{
+      type: Atom.to_string(event),
+      requested_at: requested_at,
+      summary: StatusDashboard.humanize_codex_message(message),
+      raw: message
+    }
+  end
+
+  defp pending_approval_from_event(_event, _message, _requested_at), do: nil
+
+  defp approval_response_payload(nil), do: nil
+
+  defp approval_response_payload(pending_approval) when is_map(pending_approval) do
+    %{
+      type: pending_approval[:type],
+      summary: pending_approval[:summary],
+      requested_at:
+        case pending_approval[:requested_at] do
+          %DateTime{} = requested_at -> DateTime.to_iso8601(requested_at)
+          requested_at -> requested_at
+        end
     }
   end
 

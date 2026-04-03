@@ -75,6 +75,7 @@ defmodule SymphonyElixirWeb.Presenter do
       },
       running: running && running_issue_payload(running),
       retry: retry && retry_issue_payload(retry),
+      pending_approval: pending_approval_payload(running, retry),
       logs: %{
         codex_session_logs: []
       },
@@ -106,6 +107,7 @@ defmodule SymphonyElixirWeb.Presenter do
       turn_count: Map.get(entry, :turn_count, 0),
       last_event: entry.last_codex_event,
       last_message: summarize_message(entry.last_codex_message),
+      pending_approval: normalize_pending_approval(Map.get(entry, :pending_approval)),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_codex_timestamp),
       tokens: %{
@@ -123,6 +125,7 @@ defmodule SymphonyElixirWeb.Presenter do
       attempt: entry.attempt,
       due_at: due_at_iso8601(entry.due_in_ms),
       error: entry.error,
+      pending_approval: normalize_pending_approval(Map.get(entry, :pending_approval)),
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path)
     }
@@ -138,6 +141,7 @@ defmodule SymphonyElixirWeb.Presenter do
       started_at: iso8601(running.started_at),
       last_event: running.last_codex_event,
       last_message: summarize_message(running.last_codex_message),
+      pending_approval: normalize_pending_approval(Map.get(running, :pending_approval)),
       last_event_at: iso8601(running.last_codex_timestamp),
       tokens: %{
         input_tokens: running.codex_input_tokens,
@@ -152,8 +156,26 @@ defmodule SymphonyElixirWeb.Presenter do
       attempt: retry.attempt,
       due_at: due_at_iso8601(retry.due_in_ms),
       error: retry.error,
+      pending_approval: normalize_pending_approval(Map.get(retry, :pending_approval)),
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path)
+    }
+  end
+
+  defp pending_approval_payload(running, retry) do
+    normalize_pending_approval((running && Map.get(running, :pending_approval)) || (retry && Map.get(retry, :pending_approval)))
+  end
+
+  defp normalize_pending_approval(nil), do: nil
+
+  defp normalize_pending_approval(pending_approval) when is_map(pending_approval) do
+    %{
+      type: pending_approval[:type] || pending_approval["type"],
+      summary: pending_approval[:summary] || pending_approval["summary"],
+      requested_at:
+        iso8601(pending_approval[:requested_at] || pending_approval["requested_at"]) ||
+          pending_approval[:requested_at] ||
+          pending_approval["requested_at"]
     }
   end
 
