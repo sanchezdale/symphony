@@ -27,16 +27,17 @@ _In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Line
 
 This fork currently differs from upstream `openai/symphony` in a few practical ways:
 
-- workflow files are expected under `workflows/<repo>/WORKFLOW.md` inside the Symphony checkout
-  instead of living in each target repo root
+- active workflow files are expected under
+  `~/.config/symphony/workflows/<repo>/WORKFLOW.md`
+- the repo keeps a single public sample workflow at `workflows/sample/WORKFLOW.md`
 - the Elixir launcher builds `bin/symphony.escript` and uses a small `bin/symphony` wrapper script
 - Codex launch commands can be selected by issue state via `codex.command_by_state`
-- the Elixir docs have been updated to reflect the centralized workflow layout and required CLI
+- the Elixir docs have been updated to reflect the private workflow layout and required CLI
   acknowledgement flag
 
 If you are comparing behavior with upstream, start with
-[elixir/README.md](elixir/README.md) and the checked-in workflow example under
-[workflows/elixir/WORKFLOW.md](workflows/elixir/WORKFLOW.md).
+[elixir/README.md](elixir/README.md) and the checked-in sample workflow under
+[workflows/sample/WORKFLOW.md](workflows/sample/WORKFLOW.md).
 
 ## Running Symphony
 
@@ -56,8 +57,9 @@ Tell your favorite coding agent to build Symphony in a programming language of y
 ### Option 2. Use our experimental reference implementation
 
 Check out [elixir/README.md](elixir/README.md) for instructions on how to set up your environment
-and run the Elixir-based Symphony implementation. The current setup uses centralized workflow
-definitions under `workflows/<repo>/WORKFLOW.md` inside the Symphony checkout. You can also ask
+and run the Elixir-based Symphony implementation. The current setup uses explicit workflow paths,
+with live workflow files typically stored under
+`~/.config/symphony/workflows/<repo>/WORKFLOW.md`. You can also ask
 your favorite coding agent to help with the setup:
 
 > Set up Symphony for my repository based on

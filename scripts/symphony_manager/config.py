@@ -62,7 +62,7 @@ def default_config() -> dict[str, Any]:
                 "id": "example-repo",
                 "name": "Example Repo",
                 "repo_path": str(home / "code" / "example-repo"),
-                "workflow_path": str(symphony_repo / "workflows" / "example-repo" / "WORKFLOW.md"),
+                "workflow_path": str(DEFAULT_CONFIG_DIR / "workflows" / "example-repo" / "WORKFLOW.md"),
                 "logs_root": str(DEFAULT_CONFIG_DIR / "logs" / "example-repo"),
                 "local_env_path": str(home / "code" / "example-repo" / "local.env"),
                 "port": None,

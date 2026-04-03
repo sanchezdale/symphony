@@ -57,7 +57,7 @@ The default scaffold looks like this:
       "id": "example-repo",
       "name": "Example Repo",
       "repo_path": "/Users/example/code/example-repo",
-      "workflow_path": "/Users/example/code/symphony/workflows/example-repo/WORKFLOW.md",
+      "workflow_path": "/Users/example/.config/symphony/workflows/example-repo/WORKFLOW.md",
       "logs_root": "/Users/example/.config/symphony/logs/example-repo",
       "local_env_path": "/Users/example/code/example-repo/local.env",
       "port": null,
@@ -71,6 +71,8 @@ The default scaffold looks like this:
 Notes:
 
 - `workflow_path` is explicit for each repo.
+- Store live workflow files outside the repo, typically under
+  `~/.config/symphony/workflows/`.
 - If `port` is missing, the manager picks a free loopback port in `43100-48999` and writes it back
   to `config.json`.
 - `local_env_path` points at a simple `KEY=VALUE` file that the manager loads before launch.

@@ -13,8 +13,8 @@ This directory contains the Elixir agent orchestration service that polls Linear
 
 - Runtime config is loaded from workflow front matter via `SymphonyElixir.Workflow` and
   `SymphonyElixir.Config`.
-- The default workflow location is `../workflows/<repo>/WORKFLOW.md` relative to the Symphony
-  checkout, not `elixir/WORKFLOW.md`.
+- The default workflow location is `~/.config/symphony/workflows/<repo>/WORKFLOW.md`, not a file
+  inside the Symphony checkout.
 - Keep the implementation aligned with [`../SPEC.md`](../SPEC.md) where practical.
   - The implementation may be a superset of the spec.
   - The implementation must not conflict with the spec.
@@ -64,4 +64,4 @@ If behavior/config changes, update docs in the same PR:
 
 - `../README.md` for project concept and goals.
 - `README.md` for Elixir implementation and run instructions.
-- `../workflows/<repo>/WORKFLOW.md` for workflow/config contract changes.
+- `../workflows/sample/WORKFLOW.md` for public workflow template changes.
