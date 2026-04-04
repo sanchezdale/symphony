@@ -8,6 +8,10 @@ work instead of supervising coding agents.
 This repo also includes a host-side Python utility for managing multiple Symphony instances on one
 machine. See [scripts/symphony_manager/README.md](scripts/symphony_manager/README.md).
 
+An experimental Elixir manager runtime also exists behind
+[`elixir/bin/symphony manager`](elixir/README.md). The Python flow remains the documented operator
+path until the broader multi-repo manager migration is complete.
+
 It provides:
 
 - a scaffolded per-user config at `~/.config/symphony/config.json`

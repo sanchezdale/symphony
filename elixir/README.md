@@ -83,6 +83,39 @@ After the initial build, you can also run that same `./bin/symphony` wrapper fro
 example `~/code/symphony/elixir/bin/symphony`, and it will resolve Symphony's own Erlang toolchain
 automatically.
 
+## Multi-Repo Manager
+
+The same wrapper can also start the experimental Elixir multi-repo manager that supervises one
+Symphony child runtime per enabled repo in `~/.config/symphony/config.json`:
+
+```bash
+~/code/symphony/elixir/bin/symphony \
+  manager \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails
+```
+
+Use `--config /path/to/config.json` to point at a non-default manager config:
+
+```bash
+~/code/symphony/elixir/bin/symphony \
+  manager \
+  --i-understand-that-this-will-be-running-without-the-usual-guardrails \
+  --config ~/.config/symphony/config.json
+```
+
+Current manager behavior:
+
+- loads the legacy manager config schema from `~/.config/symphony/config.json`
+- assigns and persists missing repo ports within `manager.port_range`
+- starts enabled repos automatically and skips disabled repos
+- launches each repo runtime with its configured `workflow_path`, `logs_root`, `local_env_path`,
+  inline `env`, and `port`
+- polls each repo's `/api/v1/state` endpoint to track health and applies restart backoff on failure
+- reloads config changes so repos can be added, removed, enabled, disabled, or restarted cleanly
+
+The legacy Python manager is still present in this repository during the migration, but the Elixir
+manager is the new runtime layer going forward.
+
 ## Configuration
 
 Pass a custom workflow file path to `./bin/symphony` when starting the service:
