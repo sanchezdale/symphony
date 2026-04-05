@@ -53,6 +53,7 @@ defmodule SymphonyElixir.ManagerCLITest do
     assert :ok = ManagerCLI.evaluate(["run"], deps)
     assert_received {:manager_started, started_path}
     assert started_path == SymphonyElixir.ManagerConfig.default_config_path()
+    refute_receive {:DOWN, _, :process, _, _}
   end
 
   test "returns a startup error when support apps cannot be started" do

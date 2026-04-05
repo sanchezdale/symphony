@@ -324,16 +324,16 @@ defmodule SymphonyElixir.Manager do
     end
   end
 
+  defp ensure_repo_running(state, %RepoState{repo: %RepoConfig{port: nil}} = repo_state) do
+    block_repo(state, repo_state, "repo has no assigned port after config load")
+  end
+
   defp ensure_repo_running(state, %RepoState{runtime: nil} = repo_state) do
     if state.time_fn.() >= repo_state.next_start_time_ms do
       start_repo_runtime(state, repo_state)
     else
       %{repo_state | last_health: :backoff}
     end
-  end
-
-  defp ensure_repo_running(state, %RepoState{repo: %RepoConfig{port: nil}} = repo_state) do
-    block_repo(state, repo_state, "repo has no assigned port after config load")
   end
 
   defp ensure_repo_running(state, repo_state) do

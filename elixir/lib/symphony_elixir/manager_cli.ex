@@ -62,15 +62,19 @@ defmodule SymphonyElixir.ManagerCLI do
 
     receive do
       {:EXIT, ^pid, :normal} ->
+        Process.demonitor(ref, [:flush])
         :ok
 
       {:EXIT, ^pid, reason} ->
+        Process.demonitor(ref, [:flush])
         {:error, "Symphony manager exited unexpectedly: #{inspect(reason)}"}
 
       {:DOWN, ^ref, :process, ^pid, :normal} ->
+        Process.demonitor(ref, [:flush])
         :ok
 
       {:DOWN, ^ref, :process, ^pid, reason} ->
+        Process.demonitor(ref, [:flush])
         {:error, "Symphony manager exited unexpectedly: #{inspect(reason)}"}
     end
   end

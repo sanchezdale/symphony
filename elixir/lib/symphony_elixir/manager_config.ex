@@ -36,8 +36,7 @@ defmodule SymphonyElixir.ManagerConfig do
   @spec load(Path.t()) :: load_result()
   def load(path \\ default_config_path()) do
     with {:ok, config} <- load_raw(path),
-         :ok <- validate(config),
-         {:ok, assigned_config} <- assign_missing_ports(config) do
+         {:ok, assigned_config, _changed?} <- assign_missing_ports_with_change(config) do
       {:ok, assigned_config}
     end
   end
@@ -46,9 +45,10 @@ defmodule SymphonyElixir.ManagerConfig do
   def load_and_persist(path \\ default_config_path()) do
     expanded_path = Path.expand(path)
 
-    with {:ok, config} <- load(expanded_path),
-         :ok <- maybe_persist(expanded_path, config) do
-      {:ok, config}
+    with {:ok, config} <- load_raw(expanded_path),
+         {:ok, assigned_config, changed?} <- assign_missing_ports_with_change(config),
+         :ok <- maybe_persist(expanded_path, assigned_config, changed?) do
+      {:ok, assigned_config}
     end
   end
 
@@ -93,6 +93,14 @@ defmodule SymphonyElixir.ManagerConfig do
 
   @spec assign_missing_ports(map()) :: {:ok, map()} | {:error, config_error()}
   def assign_missing_ports(config) when is_map(config) do
+    with {:ok, assigned_config, _changed?} <- assign_missing_ports_with_change(config) do
+      {:ok, assigned_config}
+    end
+  end
+
+  def assign_missing_ports(_config), do: {:error, {:config_error, "Config root must be an object"}}
+
+  defp assign_missing_ports_with_change(config) when is_map(config) do
     with :ok <- validate(config),
          {:ok, manager} <- require_object(config["manager"], "Config `manager` must be an object"),
          {:ok, port_range} <- require_object(manager["port_range"], "Manager `port_range` must be an object"),
@@ -107,19 +115,19 @@ defmodule SymphonyElixir.ManagerConfig do
         |> MapSet.new()
 
       with {:ok, repos} <- assign_ports_for_repos(config["repos"], start_port, end_port, allocated) do
+        changed? = changed?(config["repos"], repos)
+
         assigned_config =
-          if changed?(config["repos"], repos) do
+          if changed? do
             Map.put(config, "repos", repos)
           else
             config
           end
 
-        {:ok, assigned_config}
+        {:ok, assigned_config, changed?}
       end
     end
   end
-
-  def assign_missing_ports(_config), do: {:error, {:config_error, "Config root must be an object"}}
 
   @spec parse_repo(map()) :: {:ok, Repo.t()} | {:error, config_error()}
   def parse_repo(entry) when is_map(entry) do
@@ -328,15 +336,8 @@ defmodule SymphonyElixir.ManagerConfig do
     Enum.all?(env, fn {key, value} -> is_binary(key) and is_binary(value) end)
   end
 
-  defp maybe_persist(path, config) do
-    with {:ok, raw} <- load_raw(path) do
-      if changed?(raw, config) do
-        atomic_write_json(path, config)
-      else
-        :ok
-      end
-    end
-  end
+  defp maybe_persist(_path, _config, false), do: :ok
+  defp maybe_persist(path, config, true), do: atomic_write_json(path, config)
 
   defp atomic_write_json(path, payload) do
     expanded_path = Path.expand(path)

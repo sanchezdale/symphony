@@ -2,6 +2,7 @@ defmodule SymphonyElixir.ManagerTest do
   use ExUnit.Case, async: true
 
   alias SymphonyElixir.Manager
+  alias SymphonyElixir.Manager.RepoState
   alias SymphonyElixir.ManagerConfig
 
   test "starts enabled repos, skips disabled repos, and persists assigned ports" do
@@ -348,6 +349,62 @@ defmodule SymphonyElixir.ManagerTest do
              )
 
       assert Enum.any?(reloaded_snapshot.repos, &(&1.id == "repo-b" and &1.running and &1.health == :starting))
+    end)
+  end
+
+  test "blocks nil-port repos before attempting another runtime start" do
+    with_manager_fixture!(fn fixture ->
+      parent = self()
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end,
+          runtime_start: fn repo, _config, _env ->
+            send(parent, {:runtime_start_attempted, repo.id, repo.port})
+            {:ok, {:runtime, repo.id, repo.port}}
+          end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms ->
+            {:ok, %{"running" => [], "retrying" => []}}
+          end
+        )
+
+      assert_receive {:runtime_start_attempted, "repo-a", assigned_port}
+      assert is_integer(assigned_port)
+
+      :sys.replace_state(manager, fn state ->
+        %RepoState{} = repo_state = Map.fetch!(state.repos, "repo-a")
+
+        updated_config =
+          put_in(state.config, ["repos", Access.at(0), "port"], nil)
+
+        updated_repo_state = %RepoState{
+          repo_state
+          | repo: %{repo_state.repo | port: nil},
+            runtime: nil,
+            blocked_reason: nil,
+            blocked_until_config_change: false,
+            last_health: :stopped,
+            last_error: nil,
+            last_state_payload: nil
+        }
+
+        %{state | config: updated_config, repos: Map.put(state.repos, "repo-a", updated_repo_state)}
+      end)
+
+      snapshot = Manager.tick(manager)
+
+      refute_receive {:runtime_start_attempted, "repo-a", _}
+
+      assert Enum.any?(
+               snapshot.repos,
+               &(&1.id == "repo-a" and &1.health == :blocked and
+                   &1.blocked_reason == "repo has no assigned port after config load" and
+                   &1.last_error == "repo has no assigned port after config load" and not &1.running)
+             )
     end)
   end
 
