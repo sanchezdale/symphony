@@ -3,10 +3,11 @@ defmodule SymphonyElixir.CLI do
   Escript entrypoint for running Symphony with an explicit WORKFLOW.md path.
   """
 
-  alias SymphonyElixir.{LogFile, Workflow}
+  alias SymphonyElixir.{LogFile, ManagerCLI, Workflow}
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer]
+  @acknowledgement_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
@@ -14,7 +15,8 @@ defmodule SymphonyElixir.CLI do
           set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
           set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
-          ensure_all_started: (-> ensure_started_result())
+          ensure_all_started: (-> ensure_started_result()),
+          run_manager: ([String.t()] -> :ok | {:error, String.t()})
         }
 
   @spec main([String.t()]) :: no_return()
@@ -23,31 +25,45 @@ defmodule SymphonyElixir.CLI do
       :ok ->
         wait_for_shutdown()
 
+      :manager_ok ->
+        System.halt(0)
+
       {:error, message} ->
         IO.puts(:stderr, message)
         System.halt(1)
     end
   end
 
-  @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
+  @spec evaluate([String.t()], deps()) :: :ok | :manager_ok | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
-    case OptionParser.parse(args, strict: @switches) do
-      {opts, [], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
-          run(Workflow.default_workflow_file_path(), deps)
-        end
+    {acknowledged?, remaining_args} = extract_acknowledgement_flag(args)
 
-      {opts, [workflow_path], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
-          run(workflow_path, deps)
+    case remaining_args do
+      ["manager" | manager_args] ->
+        with :ok <- require_guardrails_acknowledgement_flag(acknowledged?),
+             :ok <- deps.run_manager.(manager_args) do
+          :manager_ok
         end
 
       _ ->
-        {:error, usage_message()}
+        case OptionParser.parse(args, strict: @switches) do
+          {opts, [], []} ->
+            with :ok <- require_guardrails_acknowledgement(opts),
+                 :ok <- maybe_set_logs_root(opts, deps),
+                 :ok <- maybe_set_server_port(opts, deps) do
+              run(Workflow.default_workflow_file_path(), deps)
+            end
+
+          {opts, [workflow_path], []} ->
+            with :ok <- require_guardrails_acknowledgement(opts),
+                 :ok <- maybe_set_logs_root(opts, deps),
+                 :ok <- maybe_set_server_port(opts, deps) do
+              run(workflow_path, deps)
+            end
+
+          _ ->
+            {:error, usage_message()}
+        end
     end
   end
 
@@ -72,7 +88,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]\n       symphony manager [--config <path>] [run]"
   end
 
   @spec runtime_deps() :: deps()
@@ -82,7 +98,8 @@ defmodule SymphonyElixir.CLI do
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
-      ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
+      ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end,
+      run_manager: &ManagerCLI.evaluate/1
     }
   end
 
@@ -109,6 +126,9 @@ defmodule SymphonyElixir.CLI do
       {:error, acknowledgement_banner()}
     end
   end
+
+  defp require_guardrails_acknowledgement_flag(true), do: :ok
+  defp require_guardrails_acknowledgement_flag(false), do: {:error, acknowledgement_banner()}
 
   @spec acknowledgement_banner() :: String.t()
   defp acknowledgement_banner do
@@ -167,6 +187,17 @@ defmodule SymphonyElixir.CLI do
   defp set_server_port_override(port) when is_integer(port) and port >= 0 do
     Application.put_env(:symphony_elixir, :server_port_override, port)
     :ok
+  end
+
+  defp extract_acknowledgement_flag(args) do
+    Enum.reduce(args, {false, []}, fn
+      @acknowledgement_flag, {_acknowledged?, acc} ->
+        {true, acc}
+
+      arg, {acknowledged?, acc} ->
+        {acknowledged?, [arg | acc]}
+    end)
+    |> then(fn {acknowledged?, reversed_args} -> {acknowledged?, Enum.reverse(reversed_args)} end)
   end
 
   @spec wait_for_shutdown() :: no_return()

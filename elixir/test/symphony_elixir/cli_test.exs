@@ -28,6 +28,10 @@ defmodule SymphonyElixir.CLITest do
       ensure_all_started: fn ->
         send(parent, :started)
         {:ok, [:symphony_elixir]}
+      end,
+      run_manager: fn _args ->
+        send(parent, :manager_run)
+        :ok
       end
     }
 
@@ -51,7 +55,8 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end,
+      run_manager: fn _args -> :ok end
     }
 
     assert :ok = CLI.evaluate([@ack_flag], deps)
@@ -73,7 +78,8 @@ defmodule SymphonyElixir.CLITest do
       end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end,
+      run_manager: fn _args -> :ok end
     }
 
     assert :ok = CLI.evaluate([@ack_flag, workflow_path], deps)
@@ -92,7 +98,8 @@ defmodule SymphonyElixir.CLITest do
         :ok
       end,
       set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end,
+      run_manager: fn _args -> :ok end
     }
 
     assert :ok = CLI.evaluate([@ack_flag, "--logs-root", "tmp/custom-logs", "WORKFLOW.md"], deps)
@@ -106,7 +113,8 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end,
+      run_manager: fn _args -> :ok end
     }
 
     assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
@@ -119,7 +127,8 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:error, :boom} end
+      ensure_all_started: fn -> {:error, :boom} end,
+      run_manager: fn _args -> :ok end
     }
 
     assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
@@ -133,9 +142,44 @@ defmodule SymphonyElixir.CLITest do
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
-      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end,
+      run_manager: fn _args -> :ok end
     }
 
     assert :ok = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+  end
+
+  test "dispatches the manager subcommand when acknowledged" do
+    parent = self()
+
+    deps = %{
+      file_regular?: fn _path -> flunk("workflow path should not be checked for manager mode") end,
+      set_workflow_file_path: fn _path -> flunk("workflow path should not be set for manager mode") end,
+      set_logs_root: fn _path -> flunk("logs root should not be set for manager mode") end,
+      set_server_port_override: fn _port -> flunk("port override should not be set for manager mode") end,
+      ensure_all_started: fn -> flunk("workflow app should not start for manager mode") end,
+      run_manager: fn args ->
+        send(parent, {:manager_run, args})
+        :ok
+      end
+    }
+
+    assert :manager_ok = CLI.evaluate(["manager", @ack_flag, "--config", "tmp/config.json"], deps)
+    assert_received {:manager_run, ["--config", "tmp/config.json"]}
+  end
+
+  test "requires the guardrails acknowledgement for manager mode" do
+    deps = %{
+      file_regular?: fn _path -> flunk("workflow path should not be checked for manager mode") end,
+      set_workflow_file_path: fn _path -> flunk("workflow path should not be set for manager mode") end,
+      set_logs_root: fn _path -> flunk("logs root should not be set for manager mode") end,
+      set_server_port_override: fn _port -> flunk("port override should not be set for manager mode") end,
+      ensure_all_started: fn -> flunk("workflow app should not start for manager mode") end,
+      run_manager: fn _args -> flunk("manager should not run without acknowledgement") end
+    }
+
+    assert {:error, message} = CLI.evaluate(["manager", "--config", "tmp/config.json"], deps)
+    assert message =~ "This Symphony implementation is a low key engineering preview."
+    assert message =~ "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
   end
 end

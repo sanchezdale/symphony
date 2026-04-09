@@ -66,6 +66,45 @@ defmodule SymphonyElixir.ManagerConfigTest do
     assert Enum.all?(ports, &(&1 >= 43_100 and &1 <= 43_105))
   end
 
+  test "load_and_persist writes assigned ports back to config.json" do
+    config = valid_config()
+
+    with_temp_file!(Jason.encode!(config), fn path ->
+      assert {:ok, assigned} = ManagerConfig.load_and_persist(path)
+      assert is_integer(get_in(assigned, ["repos", Access.at(1), "port"]))
+
+      assert {:ok, persisted} = ManagerConfig.load_raw(path)
+      assert get_in(persisted, ["repos", Access.at(1), "port"]) == get_in(assigned, ["repos", Access.at(1), "port"])
+    end)
+  end
+
+  test "parse_repo expands configured repo paths into a struct" do
+    assert {:ok, repo} = ManagerConfig.parse_repo(hd(valid_config()["repos"]))
+
+    assert repo.id == "repo-a"
+    assert repo.name == "Repo A"
+    assert repo.repo_path == Path.expand("/tmp/repo-a")
+    assert repo.workflow_path == Path.expand("/tmp/workflows/repo-a/WORKFLOW.md")
+    assert repo.logs_root == Path.expand("/tmp/logs/repo-a")
+    assert repo.local_env_path == Path.expand("/tmp/repo-a/local.env")
+    assert repo.port == 43_101
+    assert repo.enabled == true
+    assert repo.env == %{"A" => "1"}
+  end
+
+  test "load_env_file supports comments and export prefixes" do
+    env_file = """
+    # ignored
+    export LINEAR_API_KEY=token
+    SYMPHONY_PROJECT_SLUG=leftoff
+    """
+
+    with_temp_file!(env_file, fn path ->
+      assert {:ok, env} = ManagerConfig.load_env_file(path)
+      assert env == %{"LINEAR_API_KEY" => "token", "SYMPHONY_PROJECT_SLUG" => "leftoff"}
+    end)
+  end
+
   defp valid_config do
     %{
       "version" => 1,
