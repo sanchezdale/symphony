@@ -18,18 +18,21 @@ defmodule SymphonyElixir.HttpServer do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
-    case Keyword.get(opts, :port, Config.server_port()) do
+    case effective_port(opts) do
       port when is_integer(port) and port >= 0 ->
-        host = Keyword.get(opts, :host, Config.settings!().server.host)
+        host = effective_host(opts)
         orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+        manager = Keyword.get(opts, :manager)
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
-        with {:ok, ip} <- parse_host(host) do
+        with :ok <- ensure_pubsub_started(),
+             {:ok, ip} <- parse_host(host) do
           endpoint_opts = [
             server: true,
             http: [ip: ip, port: port],
             url: [host: normalize_host(host)],
             orchestrator: orchestrator,
+            manager: manager,
             snapshot_timeout_ms: snapshot_timeout_ms,
             secret_key_base: secret_key_base()
           ]
@@ -81,6 +84,48 @@ defmodule SymphonyElixir.HttpServer do
   defp normalize_host(host) when host in ["", nil], do: "127.0.0.1"
   defp normalize_host(host) when is_binary(host), do: host
   defp normalize_host(host), do: to_string(host)
+
+  defp effective_port(opts) do
+    case Keyword.fetch(opts, :port) do
+      {:ok, port} ->
+        port
+
+      :error ->
+        if Keyword.has_key?(opts, :manager) do
+          Application.get_env(:symphony_elixir, :server_port_override)
+        else
+          Config.server_port()
+        end
+    end
+  end
+
+  defp effective_host(opts) do
+    case Keyword.fetch(opts, :host) do
+      {:ok, host} ->
+        host
+
+      :error ->
+        if Keyword.has_key?(opts, :manager) do
+          "127.0.0.1"
+        else
+          Config.settings!().server.host
+        end
+    end
+  end
+
+  defp ensure_pubsub_started do
+    case Process.whereis(SymphonyElixir.PubSub) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case Phoenix.PubSub.Supervisor.start_link(name: SymphonyElixir.PubSub) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
 
   defp secret_key_base do
     Base.encode64(:crypto.strong_rand_bytes(@secret_key_bytes), padding: false)

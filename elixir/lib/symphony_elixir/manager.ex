@@ -90,6 +90,9 @@ defmodule SymphonyElixir.Manager do
           repos: [map()]
         }
 
+  @type repo_api_error :: :repo_disabled | :repo_not_found | :repo_unavailable | :unavailable
+  @type repo_api_response :: {:ok, non_neg_integer(), map()} | {:error, repo_api_error}
+
   @spec start_link([option()]) :: GenServer.on_start()
   def start_link(opts) do
     case Keyword.fetch(opts, :name) do
@@ -99,9 +102,13 @@ defmodule SymphonyElixir.Manager do
     end
   end
 
-  @spec snapshot(GenServer.server()) :: snapshot()
+  @spec snapshot(GenServer.server()) :: snapshot() | :unavailable
   def snapshot(server \\ __MODULE__) do
-    GenServer.call(server, :snapshot)
+    try do
+      GenServer.call(server, :snapshot)
+    catch
+      :exit, _ -> :unavailable
+    end
   end
 
   @spec tick(GenServer.server()) :: snapshot()
@@ -114,9 +121,51 @@ defmodule SymphonyElixir.Manager do
     GenServer.call(server, :reload_config)
   end
 
-  @spec restart_repo(GenServer.server(), String.t()) :: {:ok, map()} | {:error, :repo_disabled | :repo_not_found}
+  @spec repo(GenServer.server(), String.t()) :: {:ok, map()} | {:error, :repo_not_found | :unavailable}
+  def repo(server \\ __MODULE__, repo_id) when is_binary(repo_id) do
+    try do
+      GenServer.call(server, {:repo, repo_id})
+    catch
+      :exit, _ -> {:error, :unavailable}
+    end
+  end
+
+  @spec repo_state(GenServer.server(), String.t()) :: repo_api_response()
+  def repo_state(server \\ __MODULE__, repo_id) when is_binary(repo_id) do
+    try do
+      GenServer.call(server, {:repo_state, repo_id})
+    catch
+      :exit, _ -> {:error, :unavailable}
+    end
+  end
+
+  @spec repo_issue(GenServer.server(), String.t(), String.t()) :: repo_api_response()
+  def repo_issue(server \\ __MODULE__, repo_id, issue_identifier)
+      when is_binary(repo_id) and is_binary(issue_identifier) do
+    try do
+      GenServer.call(server, {:repo_issue, repo_id, issue_identifier})
+    catch
+      :exit, _ -> {:error, :unavailable}
+    end
+  end
+
+  @spec restart_repo(GenServer.server(), String.t()) ::
+          {:ok, map()} | {:error, :repo_disabled | :repo_not_found | :unavailable}
   def restart_repo(server \\ __MODULE__, repo_id) when is_binary(repo_id) do
-    GenServer.call(server, {:restart_repo, repo_id})
+    try do
+      GenServer.call(server, {:restart_repo, repo_id})
+    catch
+      :exit, _ -> {:error, :unavailable}
+    end
+  end
+
+  @spec restart(GenServer.server()) :: :ok | {:error, :unavailable}
+  def restart(server \\ __MODULE__) do
+    try do
+      GenServer.call(server, :restart)
+    catch
+      :exit, _ -> {:error, :unavailable}
+    end
   end
 
   @impl true
@@ -139,6 +188,21 @@ defmodule SymphonyElixir.Manager do
   @impl true
   def handle_call(:snapshot, _from, state) do
     {:reply, snapshot_from_state(state), state}
+  end
+
+  def handle_call({:repo, repo_id}, _from, state) do
+    case Map.get(state.repos, repo_id) do
+      nil -> {:reply, {:error, :repo_not_found}, state}
+      repo_state -> {:reply, {:ok, repo_snapshot(repo_state)}, state}
+    end
+  end
+
+  def handle_call({:repo_state, repo_id}, _from, state) do
+    {:reply, repo_state_response(state, repo_id), state}
+  end
+
+  def handle_call({:repo_issue, repo_id, issue_identifier}, _from, state) do
+    {:reply, repo_issue_response(state, repo_id, issue_identifier), state}
   end
 
   def handle_call(:tick, _from, state) do
@@ -175,6 +239,10 @@ defmodule SymphonyElixir.Manager do
 
         {:reply, {:ok, repo_snapshot(Map.fetch!(next_state.repos, repo_id))}, next_state}
     end
+  end
+
+  def handle_call(:restart, _from, state) do
+    {:stop, :normal, :ok, state}
   end
 
   @impl true
@@ -540,6 +608,61 @@ defmodule SymphonyElixir.Manager do
       last_state_payload: repo_state.last_state_payload
     }
   end
+
+  defp repo_state_response(state, repo_id) do
+    with {:ok, repo_state} <- repo_state_lookup(state, repo_id) do
+      proxy_repo_api(state, repo_state, "/api/v1/state")
+    end
+  end
+
+  defp repo_issue_response(state, repo_id, issue_identifier) do
+    with {:ok, repo_state} <- repo_state_lookup(state, repo_id) do
+      proxy_repo_api(state, repo_state, "/api/v1/#{URI.encode(issue_identifier)}")
+    end
+  end
+
+  defp repo_state_lookup(state, repo_id) do
+    case Map.get(state.repos, repo_id) do
+      nil ->
+        {:error, :repo_not_found}
+
+      %RepoState{repo: %RepoConfig{enabled: false}} ->
+        {:error, :repo_disabled}
+
+      %RepoState{runtime: nil} ->
+        {:error, :repo_unavailable}
+
+      %RepoState{repo: %RepoConfig{port: nil}} ->
+        {:error, :repo_unavailable}
+
+      repo_state ->
+        {:ok, repo_state}
+    end
+  end
+
+  defp proxy_repo_api(state, repo_state, path) do
+    url = "http://127.0.0.1:#{repo_state.repo.port}#{path}"
+
+    with {:ok, response} <- Req.get(url, receive_timeout: manager_http_timeout_ms(state.config), retry: false),
+         {:ok, payload} <- decode_repo_api_payload(response) do
+      {:ok, response.status, payload}
+    else
+      {:error, _reason} ->
+        {:error, :repo_unavailable}
+    end
+  end
+
+  defp decode_repo_api_payload(%Req.Response{body: body}) when is_map(body), do: {:ok, body}
+
+  defp decode_repo_api_payload(%Req.Response{body: body}) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, payload} when is_map(payload) -> {:ok, payload}
+      {:ok, _payload} -> {:error, :non_map_repo_api_payload}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp decode_repo_api_payload(_response), do: {:error, :invalid_repo_api_payload}
 
   defp should_reload_config?(%State{config: nil}, _now, _current_mtime), do: true
 

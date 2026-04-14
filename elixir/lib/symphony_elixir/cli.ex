@@ -88,7 +88,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]\n       symphony manager [--config <path>] [run]"
+    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]\n       symphony manager [--config <path>] [--port <port>] [run]"
   end
 
   @spec runtime_deps() :: deps()
