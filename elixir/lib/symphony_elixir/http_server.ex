@@ -6,6 +6,8 @@ defmodule SymphonyElixir.HttpServer do
   alias SymphonyElixir.{Config, Orchestrator}
   alias SymphonyElixirWeb.Endpoint
 
+  @assigned_port_range 1..65_535
+  @ephemeral_port 0
   @secret_key_bytes 48
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -18,33 +20,36 @@ defmodule SymphonyElixir.HttpServer do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
-    case Keyword.get(opts, :port, Config.server_port()) do
-      port when is_integer(port) and port >= 0 ->
-        host = Keyword.get(opts, :host, Config.settings!().server.host)
-        orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
-        snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
+    port = effective_port(opts)
 
-        with {:ok, ip} <- parse_host(host) do
-          endpoint_opts = [
-            server: true,
-            http: [ip: ip, port: port],
-            url: [host: normalize_host(host)],
-            orchestrator: orchestrator,
-            snapshot_timeout_ms: snapshot_timeout_ms,
-            secret_key_base: secret_key_base()
-          ]
+    if valid_listen_port?(opts, port) do
+      host = effective_host(opts)
+      orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+      manager = Keyword.get(opts, :manager)
+      snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
-          endpoint_config =
-            :symphony_elixir
-            |> Application.get_env(Endpoint, [])
-            |> Keyword.merge(endpoint_opts)
+      with :ok <- ensure_pubsub_started(),
+           {:ok, ip} <- parse_host(host) do
+        endpoint_opts = [
+          server: true,
+          http: [ip: ip, port: port],
+          url: [host: normalize_host(host)],
+          orchestrator: orchestrator,
+          manager: manager,
+          snapshot_timeout_ms: snapshot_timeout_ms,
+          secret_key_base: secret_key_base()
+        ]
 
-          Application.put_env(:symphony_elixir, Endpoint, endpoint_config)
-          Endpoint.start_link()
-        end
+        endpoint_config =
+          :symphony_elixir
+          |> Application.get_env(Endpoint, [])
+          |> Keyword.merge(endpoint_opts)
 
-      _ ->
-        :ignore
+        Application.put_env(:symphony_elixir, Endpoint, endpoint_config)
+        Endpoint.start_link()
+      end
+    else
+      :ignore
     end
   end
 
@@ -81,6 +86,54 @@ defmodule SymphonyElixir.HttpServer do
   defp normalize_host(host) when host in ["", nil], do: "127.0.0.1"
   defp normalize_host(host) when is_binary(host), do: host
   defp normalize_host(host), do: to_string(host)
+
+  # Explicit `port: 0` remains available for direct callers that need an ephemeral test port.
+  # Workflow config and CLI entrypoints validate assigned TCP ports before reaching this layer.
+  defp valid_listen_port?(opts, @ephemeral_port), do: Keyword.has_key?(opts, :port)
+  defp valid_listen_port?(_opts, port) when is_integer(port) and port in @assigned_port_range, do: true
+  defp valid_listen_port?(_opts, _port), do: false
+
+  defp effective_port(opts) do
+    case Keyword.fetch(opts, :port) do
+      {:ok, port} ->
+        port
+
+      :error ->
+        if Keyword.has_key?(opts, :manager) do
+          Application.get_env(:symphony_elixir, :server_port_override)
+        else
+          Config.server_port()
+        end
+    end
+  end
+
+  defp effective_host(opts) do
+    case Keyword.fetch(opts, :host) do
+      {:ok, host} ->
+        host
+
+      :error ->
+        if Keyword.has_key?(opts, :manager) do
+          "127.0.0.1"
+        else
+          Config.settings!().server.host
+        end
+    end
+  end
+
+  defp ensure_pubsub_started do
+    case Process.whereis(SymphonyElixir.PubSub) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case Phoenix.PubSub.Supervisor.start_link(name: SymphonyElixir.PubSub) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
 
   defp secret_key_base do
     Base.encode64(:crypto.strong_rand_bytes(@secret_key_bytes), padding: false)

@@ -885,6 +885,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert {:error, {:invalid_workflow_config, _message}} = Config.validate!()
 
+    write_workflow_file!(Workflow.workflow_file_path(), server_port: 0)
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "server.port"
+
     write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: "")
     assert :ok = Config.validate!()
     assert Config.settings!().codex.approval_policy == ""

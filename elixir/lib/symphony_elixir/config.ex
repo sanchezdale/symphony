@@ -84,10 +84,10 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  @spec server_port() :: non_neg_integer() | nil
+  @spec server_port() :: pos_integer() | nil
   def server_port do
     case Application.get_env(:symphony_elixir, :server_port_override) do
-      port when is_integer(port) and port >= 0 -> port
+      port when is_integer(port) and port in 1..65_535 -> port
       _ -> settings!().server.port
     end
   end

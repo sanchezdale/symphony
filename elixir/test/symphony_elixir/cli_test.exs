@@ -107,6 +107,25 @@ defmodule SymphonyElixir.CLITest do
     assert expanded_path == Path.expand("tmp/custom-logs")
   end
 
+  test "rejects invalid workflow http ports" do
+    deps = %{
+      file_regular?: fn _path -> flunk("workflow path should not be checked for invalid usage") end,
+      set_workflow_file_path: fn _path -> flunk("workflow path should not be set for invalid usage") end,
+      set_logs_root: fn _path -> flunk("logs root should not be set for invalid usage") end,
+      set_server_port_override: fn _port -> flunk("port override should not be set for invalid usage") end,
+      ensure_all_started: fn -> flunk("app should not start for invalid usage") end,
+      run_manager: fn _args -> flunk("manager should not run for workflow mode") end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--port", "0", "WORKFLOW.md"], deps)
+    assert message =~ "Usage: symphony"
+    assert message =~ "--port <port>"
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--port", "65536", "WORKFLOW.md"], deps)
+    assert message =~ "Usage: symphony"
+    assert message =~ "--port <port>"
+  end
+
   test "returns not found when workflow file does not exist" do
     deps = %{
       file_regular?: fn _path -> false end,

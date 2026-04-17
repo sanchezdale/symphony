@@ -8,13 +8,14 @@ defmodule SymphonyElixir.CLI do
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer]
   @acknowledgement_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
+  defguardp assigned_server_port(port) when is_integer(port) and port in 1..65_535
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
           file_regular?: (String.t() -> boolean()),
           set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
-          set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
+          set_server_port_override: (pos_integer() -> :ok | {:error, term()}),
           ensure_all_started: (-> ensure_started_result()),
           run_manager: ([String.t()] -> :ok | {:error, String.t()})
         }
@@ -88,7 +89,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]\n       symphony manager [--config <path>] [run]"
+    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]\n       symphony manager [--config <path>] [--port <port>] [run]"
   end
 
   @spec runtime_deps() :: deps()
@@ -176,7 +177,7 @@ defmodule SymphonyElixir.CLI do
       values ->
         port = List.last(values)
 
-        if is_integer(port) and port >= 0 do
+        if assigned_server_port(port) do
           :ok = deps.set_server_port_override.(port)
         else
           {:error, usage_message()}
@@ -184,7 +185,7 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  defp set_server_port_override(port) when is_integer(port) and port >= 0 do
+  defp set_server_port_override(port) when assigned_server_port(port) do
     Application.put_env(:symphony_elixir, :server_port_override, port)
     :ok
   end

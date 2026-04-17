@@ -39,6 +39,42 @@ defmodule SymphonyElixir.ManagerCLITest do
     assert started_path == Path.expand("tmp/manager.json")
   end
 
+  test "starts the manager http server when a port is provided" do
+    parent = self()
+
+    deps = %{
+      ensure_all_started: fn -> {:ok, [:phoenix_live_view, :bandit, :req]} end,
+      start_manager: fn path ->
+        send(parent, {:manager_started, path})
+        {:ok, spawn(fn -> :ok end)}
+      end,
+      start_http_server: fn manager, opts ->
+        send(parent, {:http_server_started, manager, opts})
+        {:ok, spawn(fn -> :ok end)}
+      end
+    }
+
+    assert :ok = ManagerCLI.evaluate(["--config", "tmp/manager.json", "--port", "4100", "run"], deps)
+    assert_received {:manager_started, started_path}
+    assert started_path == Path.expand("tmp/manager.json")
+    assert_received {:http_server_started, manager, [port: 4100]}
+    assert is_pid(manager)
+  end
+
+  test "rejects invalid manager http ports" do
+    deps = %{
+      ensure_all_started: fn -> flunk("deps should not start for invalid usage") end,
+      start_manager: fn _path -> flunk("manager should not start for invalid usage") end,
+      start_http_server: fn _manager, _opts -> flunk("http server should not start for invalid usage") end
+    }
+
+    assert {:error, message} = ManagerCLI.evaluate(["--port", "0", "run"], deps)
+    assert message == ManagerCLI.usage_message()
+
+    assert {:error, message} = ManagerCLI.evaluate(["--port", "65536", "run"], deps)
+    assert message == ManagerCLI.usage_message()
+  end
+
   test "handles linked manager exits without crashing the caller" do
     parent = self()
 
