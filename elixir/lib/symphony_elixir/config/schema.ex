@@ -260,7 +260,7 @@ defmodule SymphonyElixir.Config.Schema do
     def changeset(schema, attrs) do
       schema
       |> cast(attrs, [:port, :host], empty_values: [])
-      |> validate_number(:port, greater_than_or_equal_to: 0)
+      |> validate_number(:port, greater_than: 0, less_than_or_equal_to: 65_535)
     end
   end
 
