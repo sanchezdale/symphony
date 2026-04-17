@@ -96,7 +96,7 @@ defmodule SymphonyElixir.ManagerCLI do
       values ->
         port = List.last(values)
 
-        if is_integer(port) and port >= 0 do
+        if is_integer(port) and port in 1..65_535 do
           {:ok, [port: port]}
         else
           {:error, usage_message()}

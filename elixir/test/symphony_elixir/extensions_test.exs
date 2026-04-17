@@ -639,6 +639,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert spec.start == {HttpServer, :start_link, [[port: 0]]}
 
     assert :ignore = HttpServer.start_link(port: nil)
+    assert :ignore = HttpServer.start_link(port: 65_536)
     assert HttpServer.bound_port() == nil
 
     snapshot = static_snapshot()

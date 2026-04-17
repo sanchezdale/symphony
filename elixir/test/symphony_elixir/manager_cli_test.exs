@@ -61,6 +61,20 @@ defmodule SymphonyElixir.ManagerCLITest do
     assert is_pid(manager)
   end
 
+  test "rejects invalid manager http ports" do
+    deps = %{
+      ensure_all_started: fn -> flunk("deps should not start for invalid usage") end,
+      start_manager: fn _path -> flunk("manager should not start for invalid usage") end,
+      start_http_server: fn _manager, _opts -> flunk("http server should not start for invalid usage") end
+    }
+
+    assert {:error, message} = ManagerCLI.evaluate(["--port", "0", "run"], deps)
+    assert message == ManagerCLI.usage_message()
+
+    assert {:error, message} = ManagerCLI.evaluate(["--port", "65536", "run"], deps)
+    assert message == ManagerCLI.usage_message()
+  end
+
   test "handles linked manager exits without crashing the caller" do
     parent = self()
 

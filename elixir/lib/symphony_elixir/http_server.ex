@@ -19,7 +19,7 @@ defmodule SymphonyElixir.HttpServer do
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
     case effective_port(opts) do
-      port when is_integer(port) and port >= 0 ->
+      port when is_integer(port) and port in 0..65_535 ->
         host = effective_host(opts)
         orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
         manager = Keyword.get(opts, :manager)
