@@ -10,6 +10,10 @@ When a managed repo starts Symphony with `--port`, the loopback API can expose b
 observability routes (`/api/v1/state`, `/api/v1/<issue_identifier>`) and the manager-scoped routes
 used for fleet operations (`/api/v1/repos`, `/api/v1/repos/<repo_id>`, and restart endpoints).
 
+The dashboard at `/` also becomes manager-aware in this mode: operators can
+switch between repos, inspect repo-scoped issue activity, and trigger repo or
+manager restarts from the same page.
+
 ## Commands
 
 Run from the repository root:
