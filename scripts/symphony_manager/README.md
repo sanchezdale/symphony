@@ -6,6 +6,10 @@ It creates and reads a per-user config at `~/.config/symphony/config.json`, veri
 prerequisites before startup, launches one Symphony process per configured repo, and watches the
 loopback observability API to restart stuck processes.
 
+When a managed repo starts Symphony with `--port`, the loopback API can expose both the per-repo
+observability routes (`/api/v1/state`, `/api/v1/<issue_identifier>`) and the manager-scoped routes
+used for fleet operations (`/api/v1/repos`, `/api/v1/repos/<repo_id>`, and restart endpoints).
+
 ## Commands
 
 Run from the repository root:

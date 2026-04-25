@@ -165,10 +165,27 @@ defmodule SymphonyElixir.ManagerApiTest do
                &(&1["id"] == "repo-a" and &1["running"] == true and &1["port"] == repo_port)
              )
 
+      repo_payload = json_response(get(build_conn(), "/api/v1/repos/repo-a"), 200)
+
+      assert repo_payload["id"] == "repo-a"
+      assert repo_payload["name"] == "REPO-A"
+      assert repo_payload["running"] == true
+      assert repo_payload["port"] == repo_port
+      assert repo_payload["health"] == "starting"
+      assert repo_payload["repo_path"] == Path.join([fixture.root, "repo-a"])
+      assert repo_payload["workflow_path"] == Path.join([fixture.root, "workflows", "repo-a", "WORKFLOW.md"])
+      assert repo_payload["logs_root"] == Path.join([fixture.root, "logs", "repo-a"])
+      assert repo_payload["local_env_path"] == Path.join([fixture.root, "repo-a", "local.env"])
+      assert repo_payload["blocked_reason"] == nil
+      assert repo_payload["last_state_payload"] == nil
+
       assert json_response(get(build_conn(), "/api/v1/repos/repo-a/state"), 200) == repo_state_payload
 
       assert json_response(get(build_conn(), "/api/v1/repos/repo-a/issues/MT-HTTP"), 200) ==
                repo_issue_payload
+
+      assert json_response(get(build_conn(), "/api/v1/repos/repo-missing"), 404) ==
+               %{"error" => %{"code" => "repo_not_found", "message" => "Repo not found"}}
 
       assert json_response(get(build_conn(), "/api/v1/repos/repo-a/issues/MT-MISSING"), 404) ==
                %{"error" => %{"code" => "issue_not_found", "message" => "Issue not found"}}
@@ -259,6 +276,9 @@ defmodule SymphonyElixir.ManagerApiTest do
     start_test_endpoint(orchestrator: Module.concat(__MODULE__, :MissingOrchestrator), snapshot_timeout_ms: 5)
 
     assert json_response(get(build_conn(), "/api/v1/repos"), 503) ==
+             %{"error" => %{"code" => "manager_unavailable", "message" => "Manager is unavailable"}}
+
+    assert json_response(get(build_conn(), "/api/v1/repos/repo-a"), 503) ==
              %{"error" => %{"code" => "manager_unavailable", "message" => "Manager is unavailable"}}
   end
 

@@ -25,6 +25,20 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
     end
   end
 
+  @spec repo(Conn.t(), map()) :: Conn.t()
+  def repo(conn, %{"repo_id" => repo_id}) do
+    case Manager.repo(manager(), repo_id) do
+      {:ok, payload} ->
+        json(conn, payload)
+
+      {:error, :repo_not_found} ->
+        error_response(conn, 404, "repo_not_found", "Repo not found")
+
+      {:error, :unavailable} ->
+        error_response(conn, 503, "manager_unavailable", "Manager is unavailable")
+    end
+  end
+
   @spec repo_state(Conn.t(), map()) :: Conn.t()
   def repo_state(conn, %{"repo_id" => repo_id}) do
     case Manager.repo_state(manager(), repo_id) do
