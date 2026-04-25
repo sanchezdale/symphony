@@ -249,7 +249,8 @@ instead of exporting everything globally.
 - If a later reload fails, Symphony keeps running with the last known good workflow and logs the
   reload error until the file is fixed.
 - `server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard and JSON API at
-  `/`, `/api/v1/state`, `/api/v1/<issue_identifier>`, and `/api/v1/refresh`.
+  `/`, `/api/v1/state`, `/api/v1/<issue_identifier>`, `/api/v1/refresh`, and manager-mode routes
+  such as `/api/v1/repos`.
 
 ## Web dashboard
 
@@ -266,6 +267,16 @@ Current API routes include:
 - `GET /api/v1/<issue_identifier>`
 - `POST /api/v1/refresh`
 - `POST /api/v1/<issue_identifier>/approve`
+
+When Symphony is running through the multi-repo manager, the same HTTP surface also exposes
+manager-scoped operations:
+
+- `GET /api/v1/repos`
+- `GET /api/v1/repos/<repo_id>`
+- `GET /api/v1/repos/<repo_id>/state`
+- `GET /api/v1/repos/<repo_id>/issues/<issue_identifier>`
+- `POST /api/v1/repos/<repo_id>/restart`
+- `POST /api/v1/manager/restart`
 
 `POST /api/v1/<issue_identifier>/approve` is intended for operator fallback when a workflow is not
 running with `codex.approval_policy: never`. Symphony records the pending approval request, queues
