@@ -9,7 +9,17 @@ defmodule SymphonyElixir.ManagerConfig do
     @moduledoc false
 
     @enforce_keys [:id, :name, :repo_path, :workflow_path, :logs_root]
-    defstruct [:id, :name, :repo_path, :workflow_path, :logs_root, :local_env_path, :port, enabled: true, env: %{}]
+    defstruct [
+      :id,
+      :name,
+      :repo_path,
+      :workflow_path,
+      :logs_root,
+      :local_env_path,
+      :port,
+      enabled: true,
+      env: %{}
+    ]
 
     @type t :: %__MODULE__{
             id: String.t(),
@@ -79,13 +89,20 @@ defmodule SymphonyElixir.ManagerConfig do
   @spec validate(map()) :: validation_result()
   def validate(config) when is_map(config) do
     with :ok <- require_value(config["version"] == 1, "Config `version` must be 1"),
-         :ok <- require_non_empty_string(config["symphony_repo"], "Config `symphony_repo` must be a non-empty string"),
-         :ok <- require_non_empty_string(config["symphony_bin"], "Config `symphony_bin` must be a non-empty string"),
+         :ok <-
+           require_non_empty_string(
+             config["symphony_repo"],
+             "Config `symphony_repo` must be a non-empty string"
+           ),
+         :ok <-
+           require_non_empty_string(
+             config["symphony_bin"],
+             "Config `symphony_bin` must be a non-empty string"
+           ),
          {:ok, manager} <- require_object(config["manager"], "Config `manager` must be an object"),
          {:ok, manager} <- validate_manager(manager),
-         {:ok, repos} <- require_list(config["repos"], "Config `repos` must be a list"),
-         :ok <- validate_repos(repos, manager) do
-      :ok
+         {:ok, repos} <- require_list(config["repos"], "Config `repos` must be a list") do
+      validate_repos(repos, manager)
     end
   end
 
@@ -98,15 +115,29 @@ defmodule SymphonyElixir.ManagerConfig do
     end
   end
 
-  def assign_missing_ports(_config), do: {:error, {:config_error, "Config root must be an object"}}
+  def assign_missing_ports(_config),
+    do: {:error, {:config_error, "Config root must be an object"}}
 
   defp assign_missing_ports_with_change(config) when is_map(config) do
     with :ok <- validate(config),
          {:ok, manager} <- require_object(config["manager"], "Config `manager` must be an object"),
-         {:ok, port_range} <- require_object(manager["port_range"], "Manager `port_range` must be an object"),
-         {:ok, start_port} <- require_positive_integer(port_range["start"], "Manager `port_range` must contain valid integer `start` and `end`"),
-         {:ok, end_port} <- require_positive_integer(port_range["end"], "Manager `port_range` must contain valid integer `start` and `end`"),
-         :ok <- require_value(end_port >= start_port, "Manager `port_range` must contain valid integer `start` and `end`") do
+         {:ok, port_range} <-
+           require_object(manager["port_range"], "Manager `port_range` must be an object"),
+         {:ok, start_port} <-
+           require_positive_integer(
+             port_range["start"],
+             "Manager `port_range` must contain valid integer `start` and `end`"
+           ),
+         {:ok, end_port} <-
+           require_positive_integer(
+             port_range["end"],
+             "Manager `port_range` must contain valid integer `start` and `end`"
+           ),
+         :ok <-
+           require_value(
+             end_port >= start_port,
+             "Manager `port_range` must contain valid integer `start` and `end`"
+           ) do
       allocated =
         config["repos"]
         |> Enum.filter(&is_map/1)
@@ -114,29 +145,49 @@ defmodule SymphonyElixir.ManagerConfig do
         |> Enum.filter(&is_integer/1)
         |> MapSet.new()
 
-      with {:ok, repos} <- assign_ports_for_repos(config["repos"], start_port, end_port, allocated) do
-        changed? = changed?(config["repos"], repos)
+      case assign_ports_for_repos(config["repos"], start_port, end_port, allocated) do
+        {:ok, repos} ->
+          changed? = changed?(config["repos"], repos)
+          {:ok, assigned_config(config, repos, changed?), changed?}
 
-        assigned_config =
-          if changed? do
-            Map.put(config, "repos", repos)
-          else
-            config
-          end
-
-        {:ok, assigned_config, changed?}
+        {:error, _} = error ->
+          error
       end
     end
   end
 
   @spec parse_repo(map()) :: {:ok, Repo.t()} | {:error, config_error()}
   def parse_repo(entry) when is_map(entry) do
-    with {:ok, repo_id} <- require_non_empty_string_value(entry["id"], "Repo field `id` must be a non-empty string"),
-         {:ok, name} <- require_non_empty_string_value(entry["name"], "Repo field `name` must be a non-empty string"),
-         {:ok, repo_path} <- require_non_empty_string_value(entry["repo_path"], "Repo field `repo_path` must be a non-empty string"),
-         {:ok, workflow_path} <- require_non_empty_string_value(entry["workflow_path"], "Repo field `workflow_path` must be a non-empty string"),
-         {:ok, logs_root} <- require_non_empty_string_value(entry["logs_root"], "Repo field `logs_root` must be a non-empty string"),
-         :ok <- validate_optional_non_empty_string(entry["local_env_path"], "Repo `#{repo_id}` field `local_env_path` must be a non-empty string when present"),
+    with {:ok, repo_id} <-
+           require_non_empty_string_value(
+             entry["id"],
+             "Repo field `id` must be a non-empty string"
+           ),
+         {:ok, name} <-
+           require_non_empty_string_value(
+             entry["name"],
+             "Repo field `name` must be a non-empty string"
+           ),
+         {:ok, repo_path} <-
+           require_non_empty_string_value(
+             entry["repo_path"],
+             "Repo field `repo_path` must be a non-empty string"
+           ),
+         {:ok, workflow_path} <-
+           require_non_empty_string_value(
+             entry["workflow_path"],
+             "Repo field `workflow_path` must be a non-empty string"
+           ),
+         {:ok, logs_root} <-
+           require_non_empty_string_value(
+             entry["logs_root"],
+             "Repo field `logs_root` must be a non-empty string"
+           ),
+         :ok <-
+           validate_optional_non_empty_string(
+             entry["local_env_path"],
+             "Repo `#{repo_id}` field `local_env_path` must be a non-empty string when present"
+           ),
          :ok <- validate_repo_enabled(entry, repo_id),
          :ok <- validate_repo_env(entry, repo_id),
          :ok <- validate_repo_port_shape(entry, repo_id) do
@@ -157,13 +208,15 @@ defmodule SymphonyElixir.ManagerConfig do
 
   def parse_repo(_entry), do: {:error, {:config_error, "Each repo entry must be an object"}}
 
-  @spec load_env_file(Path.t()) :: {:ok, %{optional(String.t()) => String.t()}} | {:error, config_error()}
+  @spec load_env_file(Path.t()) ::
+          {:ok, %{optional(String.t()) => String.t()}} | {:error, config_error()}
   def load_env_file(path) when is_binary(path) do
     expanded_path = Path.expand(path)
 
-    with {:ok, contents} <- File.read(expanded_path) do
-      parse_env_file(contents, expanded_path)
-    else
+    case File.read(expanded_path) do
+      {:ok, contents} ->
+        parse_env_file(contents, expanded_path)
+
       {:error, reason} ->
         {:error, {:config_error, "Failed to read env file #{expanded_path}: #{inspect(reason)}"}}
     end
@@ -176,7 +229,8 @@ defmodule SymphonyElixir.ManagerConfig do
          :ok <- validate_positive_integer_field(manager, "graceful_shutdown_seconds"),
          :ok <- validate_positive_integer_field(manager, "config_reload_seconds"),
          :ok <- validate_restart_backoff(manager["restart_backoff_seconds"]),
-         {:ok, port_range} <- require_object(manager["port_range"], "Manager `port_range` must be an object"),
+         {:ok, port_range} <-
+           require_object(manager["port_range"], "Manager `port_range` must be an object"),
          :ok <- validate_port_range(port_range) do
       {:ok, Map.put(manager, "port_range", normalize_port_range(port_range))}
     end
@@ -187,24 +241,9 @@ defmodule SymphonyElixir.ManagerConfig do
     end_port = get_in(manager, ["port_range", "end"]) || @default_port_range.end
 
     Enum.reduce_while(repos, {%{}, MapSet.new()}, fn entry, {ids, ports} ->
-      with {:ok, repo} <- parse_repo(entry),
-           :ok <- require_value(not Map.has_key?(ids, repo.id), "Duplicate repo id `#{repo.id}`"),
-           :ok <- validate_repo_port(repo, ports, start_port, end_port) do
-        next_ports =
-          case repo.port do
-            nil -> ports
-            port -> MapSet.put(ports, port)
-          end
-
-        {:cont, {Map.put(ids, repo.id, true), next_ports}}
-      else
-        {:error, _} = error -> {:halt, error}
-      end
+      validate_repo_entry(entry, {ids, ports}, start_port, end_port)
     end)
-    |> case do
-      {:error, _} = error -> error
-      {_ids, _ports} -> :ok
-    end
+    |> validate_repos_result()
   end
 
   defp validate_repo_enabled(entry, repo_id) do
@@ -230,9 +269,14 @@ defmodule SymphonyElixir.ManagerConfig do
 
   defp validate_repo_port_shape(entry, repo_id) do
     case Map.get(entry, "port") do
-      nil -> :ok
-      value when is_integer(value) and value > 0 -> :ok
-      _ -> {:error, {:config_error, "Repo `#{repo_id}` field `port` must be a positive integer when present"}}
+      nil ->
+        :ok
+
+      value when is_integer(value) and value > 0 ->
+        :ok
+
+      _ ->
+        {:error, {:config_error, "Repo `#{repo_id}` field `port` must be a positive integer when present"}}
     end
   end
 
@@ -282,13 +326,11 @@ defmodule SymphonyElixir.ManagerConfig do
            require_positive_integer(
              port_range["end"],
              "Manager `port_range` must contain valid integer `start` and `end`"
-           ),
-         :ok <-
-           require_value(
-             end_port >= start_port,
-             "Manager `port_range` must contain valid integer `start` and `end`"
            ) do
-      :ok
+      require_value(
+        end_port >= start_port,
+        "Manager `port_range` must contain valid integer `start` and `end`"
+      )
     end
   end
 
@@ -336,13 +378,38 @@ defmodule SymphonyElixir.ManagerConfig do
     Enum.all?(env, fn {key, value} -> is_binary(key) and is_binary(value) end)
   end
 
+  defp assigned_config(config, _repos, false), do: config
+  defp assigned_config(config, repos, true), do: Map.put(config, "repos", repos)
+
+  defp validate_repo_entry(entry, {ids, ports}, start_port, end_port) do
+    with {:ok, repo} <- parse_repo(entry),
+         :ok <- require_value(not Map.has_key?(ids, repo.id), "Duplicate repo id `#{repo.id}`"),
+         :ok <- validate_repo_port(repo, ports, start_port, end_port) do
+      {:cont, {Map.put(ids, repo.id, true), next_ports(ports, repo.port)}}
+    else
+      {:error, _} = error -> {:halt, error}
+    end
+  end
+
+  defp validate_repos_result({:error, _} = error), do: error
+  defp validate_repos_result({_ids, _ports}), do: :ok
+
+  defp next_ports(ports, nil), do: ports
+  defp next_ports(ports, port), do: MapSet.put(ports, port)
+
   defp maybe_persist(_path, _config, false), do: :ok
   defp maybe_persist(path, config, true), do: atomic_write_json(path, config)
 
   defp atomic_write_json(path, payload) do
     expanded_path = Path.expand(path)
     directory = Path.dirname(expanded_path)
-    tmp_path = Path.join(directory, ".#{Path.basename(expanded_path)}.#{System.unique_integer([:positive])}.tmp")
+
+    tmp_path =
+      Path.join(
+        directory,
+        ".#{Path.basename(expanded_path)}.#{System.unique_integer([:positive])}.tmp"
+      )
+
     contents = Jason.encode_to_iodata!(payload, pretty: true)
 
     with :ok <- File.mkdir_p(directory),
@@ -363,26 +430,12 @@ defmodule SymphonyElixir.ManagerConfig do
     |> Enum.reduce_while({:ok, %{}}, fn {raw_line, line_number}, {:ok, env} ->
       line = String.trim(raw_line)
 
-      cond do
-        line == "" or String.starts_with?(line, "#") ->
-          {:cont, {:ok, env}}
-
-        true ->
-          line = trim_export_prefix(line)
-
-          case String.split(line, "=", parts: 2) do
-            [key, value] ->
-              key = String.trim(key)
-
-              if key == "" do
-                {:halt, {:error, {:config_error, "Invalid env file line #{line_number} in #{path}: expected KEY=VALUE"}}}
-              else
-                {:cont, {:ok, Map.put(env, key, String.trim(value))}}
-              end
-
-            _ ->
-              {:halt, {:error, {:config_error, "Invalid env file line #{line_number} in #{path}: expected KEY=VALUE"}}}
-          end
+      if line == "" or String.starts_with?(line, "#") do
+        {:cont, {:ok, env}}
+      else
+        line
+        |> trim_export_prefix()
+        |> parse_env_assignment(env, line_number, path)
       end
     end)
   end
@@ -390,23 +443,34 @@ defmodule SymphonyElixir.ManagerConfig do
   defp trim_export_prefix("export " <> rest), do: String.trim(rest)
   defp trim_export_prefix(line), do: line
 
+  defp parse_env_assignment(line, env, line_number, path) do
+    case String.split(line, "=", parts: 2) do
+      [key, value] ->
+        put_env_assignment(String.trim(key), String.trim(value), env, line_number, path)
+
+      _ ->
+        invalid_env_line(line_number, path)
+    end
+  end
+
+  defp put_env_assignment("", _value, _env, line_number, path),
+    do: invalid_env_line(line_number, path)
+
+  defp put_env_assignment(key, value, env, _line_number, _path),
+    do: {:cont, {:ok, Map.put(env, key, value)}}
+
+  defp invalid_env_line(line_number, path) do
+    {:halt, {:error, {:config_error, "Invalid env file line #{line_number} in #{path}: expected KEY=VALUE"}}}
+  end
+
   defp assign_ports_for_repos(repos, start_port, end_port, allocated) do
     Enum.reduce_while(repos, {:ok, [], allocated}, fn repo, {:ok, acc, reserved} ->
-      case repo do
-        %{"port" => nil} = repo_entry ->
-          case choose_available_port(start_port, end_port, reserved) do
-            {:ok, port} ->
-              {:cont, {:ok, [Map.put(repo_entry, "port", port) | acc], MapSet.put(reserved, port)}}
+      case assign_port_for_repo(repo, start_port, end_port, reserved) do
+        {:ok, assigned_repo, next_reserved} ->
+          {:cont, {:ok, [assigned_repo | acc], next_reserved}}
 
-            {:error, _} = error ->
-              {:halt, error}
-          end
-
-        %{} = repo_entry ->
-          {:cont, {:ok, [repo_entry | acc], reserved}}
-
-        other ->
-          {:cont, {:ok, [other | acc], reserved}}
+        {:error, _} = error ->
+          {:halt, error}
       end
     end)
     |> case do
@@ -415,14 +479,32 @@ defmodule SymphonyElixir.ManagerConfig do
     end
   end
 
+  defp assign_port_for_repo(%{"port" => nil} = repo_entry, start_port, end_port, reserved) do
+    case choose_available_port(start_port, end_port, reserved) do
+      {:ok, port} ->
+        {:ok, Map.put(repo_entry, "port", port), MapSet.put(reserved, port)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp assign_port_for_repo(%{} = repo_entry, _start_port, _end_port, reserved),
+    do: {:ok, repo_entry, reserved}
+
+  defp assign_port_for_repo(other, _start_port, _end_port, reserved), do: {:ok, other, reserved}
+
   defp choose_available_port(start_port, end_port, reserved) do
     start_port..end_port
     |> Enum.find(fn port ->
       not MapSet.member?(reserved, port) and loopback_port_available?(port)
     end)
     |> case do
-      nil -> {:error, {:config_error, "No available loopback ports in range #{start_port}-#{end_port}"}}
-      port -> {:ok, port}
+      nil ->
+        {:error, {:config_error, "No available loopback ports in range #{start_port}-#{end_port}"}}
+
+      port ->
+        {:ok, port}
     end
   end
 
@@ -433,7 +515,13 @@ defmodule SymphonyElixir.ManagerConfig do
   end
 
   defp can_bind?(family, host, port) do
-    case :gen_tcp.listen(port, [:binary, family, {:ip, host}, {:active, false}, {:reuseaddr, true}]) do
+    case :gen_tcp.listen(port, [
+           :binary,
+           family,
+           {:ip, host},
+           {:active, false},
+           {:reuseaddr, true}
+         ]) do
       {:ok, socket} ->
         :ok = :gen_tcp.close(socket)
         true

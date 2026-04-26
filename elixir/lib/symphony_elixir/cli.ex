@@ -49,22 +49,22 @@ defmodule SymphonyElixir.CLI do
       _ ->
         case OptionParser.parse(args, strict: @switches) do
           {opts, [], []} ->
-            with :ok <- require_guardrails_acknowledgement(opts),
-                 :ok <- maybe_set_logs_root(opts, deps),
-                 :ok <- maybe_set_server_port(opts, deps) do
-              run(Workflow.default_workflow_file_path(), deps)
-            end
+            run_workflow_from_cli(opts, Workflow.default_workflow_file_path(), deps)
 
           {opts, [workflow_path], []} ->
-            with :ok <- require_guardrails_acknowledgement(opts),
-                 :ok <- maybe_set_logs_root(opts, deps),
-                 :ok <- maybe_set_server_port(opts, deps) do
-              run(workflow_path, deps)
-            end
+            run_workflow_from_cli(opts, workflow_path, deps)
 
           _ ->
             {:error, usage_message()}
         end
+    end
+  end
+
+  defp run_workflow_from_cli(opts, workflow_path, deps) do
+    with :ok <- require_guardrails_acknowledgement(opts),
+         :ok <- maybe_set_logs_root(opts, deps),
+         :ok <- maybe_set_server_port(opts, deps) do
+      run(workflow_path, deps)
     end
   end
 

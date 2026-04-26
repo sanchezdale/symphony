@@ -13,7 +13,7 @@ defmodule SymphonyElixir.ManagerCLITest do
       end,
       start_manager: fn path ->
         send(parent, {:manager_started, path})
-        {:ok, spawn(fn -> :ok end)}
+        {:ok, spawn_stub_process()}
       end
     }
 
@@ -30,7 +30,7 @@ defmodule SymphonyElixir.ManagerCLITest do
       ensure_all_started: fn -> {:ok, [:req]} end,
       start_manager: fn path ->
         send(parent, {:manager_started, path})
-        {:ok, spawn(fn -> :ok end)}
+        {:ok, spawn_stub_process()}
       end
     }
 
@@ -46,11 +46,11 @@ defmodule SymphonyElixir.ManagerCLITest do
       ensure_all_started: fn -> {:ok, [:phoenix_live_view, :bandit, :req]} end,
       start_manager: fn path ->
         send(parent, {:manager_started, path})
-        {:ok, spawn(fn -> :ok end)}
+        {:ok, spawn_stub_process()}
       end,
       start_http_server: fn manager, opts ->
         send(parent, {:http_server_started, manager, opts})
-        {:ok, spawn(fn -> :ok end)}
+        {:ok, spawn_stub_process()}
       end
     }
 
@@ -82,7 +82,7 @@ defmodule SymphonyElixir.ManagerCLITest do
       ensure_all_started: fn -> {:ok, [:req]} end,
       start_manager: fn path ->
         send(parent, {:manager_started, path})
-        {:ok, spawn_link(fn -> :ok end)}
+        {:ok, spawn_stub_process(true)}
       end
     }
 
@@ -111,5 +111,10 @@ defmodule SymphonyElixir.ManagerCLITest do
 
     assert {:error, message} = ManagerCLI.evaluate(["run", "extra"], deps)
     assert message == ManagerCLI.usage_message()
+  end
+
+  defp spawn_stub_process(linked? \\ false) do
+    starter = fn -> Process.sleep(25) end
+    if linked?, do: spawn_link(starter), else: spawn(starter)
   end
 end

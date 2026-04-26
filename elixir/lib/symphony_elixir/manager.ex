@@ -104,11 +104,9 @@ defmodule SymphonyElixir.Manager do
 
   @spec snapshot(GenServer.server()) :: snapshot() | :unavailable
   def snapshot(server \\ __MODULE__) do
-    try do
-      GenServer.call(server, :snapshot)
-    catch
-      :exit, _ -> :unavailable
-    end
+    GenServer.call(server, :snapshot)
+  catch
+    :exit, _ -> :unavailable
   end
 
   @spec tick(GenServer.server()) :: snapshot()
@@ -121,51 +119,42 @@ defmodule SymphonyElixir.Manager do
     GenServer.call(server, :reload_config)
   end
 
-  @spec repo(GenServer.server(), String.t()) :: {:ok, map()} | {:error, :repo_not_found | :unavailable}
+  @spec repo(GenServer.server(), String.t()) ::
+          {:ok, map()} | {:error, :repo_not_found | :unavailable}
   def repo(server \\ __MODULE__, repo_id) when is_binary(repo_id) do
-    try do
-      GenServer.call(server, {:repo, repo_id})
-    catch
-      :exit, _ -> {:error, :unavailable}
-    end
+    GenServer.call(server, {:repo, repo_id})
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   @spec repo_state(GenServer.server(), String.t()) :: repo_api_response()
   def repo_state(server \\ __MODULE__, repo_id) when is_binary(repo_id) do
-    try do
-      GenServer.call(server, {:repo_state, repo_id})
-    catch
-      :exit, _ -> {:error, :unavailable}
-    end
+    GenServer.call(server, {:repo_state, repo_id})
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   @spec repo_issue(GenServer.server(), String.t(), String.t()) :: repo_api_response()
   def repo_issue(server \\ __MODULE__, repo_id, issue_identifier)
       when is_binary(repo_id) and is_binary(issue_identifier) do
-    try do
-      GenServer.call(server, {:repo_issue, repo_id, issue_identifier})
-    catch
-      :exit, _ -> {:error, :unavailable}
-    end
+    GenServer.call(server, {:repo_issue, repo_id, issue_identifier})
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   @spec restart_repo(GenServer.server(), String.t()) ::
           {:ok, map()} | {:error, :repo_disabled | :repo_not_found | :unavailable}
   def restart_repo(server \\ __MODULE__, repo_id) when is_binary(repo_id) do
-    try do
-      GenServer.call(server, {:restart_repo, repo_id})
-    catch
-      :exit, _ -> {:error, :unavailable}
-    end
+    GenServer.call(server, {:restart_repo, repo_id})
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   @spec restart(GenServer.server()) :: :ok | {:error, :unavailable}
   def restart(server \\ __MODULE__) do
-    try do
-      GenServer.call(server, :restart)
-    catch
-      :exit, _ -> {:error, :unavailable}
-    end
+    GenServer.call(server, :restart)
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   @impl true
@@ -284,41 +273,51 @@ defmodule SymphonyElixir.Manager do
   defp maybe_reload_config(state, force_reload) do
     now = state.time_fn.()
 
-    with {:ok, current_mtime} <- config_mtime(state.config_path) do
-      if force_reload or should_reload_config?(state, now, current_mtime) do
-        case ManagerConfig.load_and_persist(state.config_path) do
-          {:ok, config} ->
-            {:ok,
-             %{
-               state
-               | config: config,
-                 config_mtime: refreshed_config_mtime(state.config_path, current_mtime),
-                 last_config_check_ms: now,
-                 repos: state.repos
-             }}
+    case config_mtime(state.config_path) do
+      {:ok, current_mtime} ->
+        maybe_reload_config_with_mtime(state, force_reload, now, current_mtime)
 
-          {:error, reason} ->
-            Logger.warning("manager config_reload_failed config_path=#{state.config_path} reason=#{inspect(reason)}")
-
-            if is_nil(state.config) do
-              {:error, reason}
-            else
-              {:ok, %{state | last_config_check_ms: now}}
-            end
-        end
-      else
-        {:ok, state}
-      end
-    else
       {:error, reason} ->
-        if is_nil(state.config) do
-          {:error, reason}
-        else
-          Logger.warning("manager config_stat_failed config_path=#{state.config_path} reason=#{inspect(reason)}")
-
-          {:ok, %{state | last_config_check_ms: now}}
-        end
+        maybe_handle_config_stat_error(state, now, reason)
     end
+  end
+
+  defp maybe_reload_config_with_mtime(state, force_reload, now, current_mtime) do
+    if force_reload or should_reload_config?(state, now, current_mtime) do
+      load_manager_config(state, now, current_mtime)
+    else
+      {:ok, state}
+    end
+  end
+
+  defp load_manager_config(state, now, current_mtime) do
+    case ManagerConfig.load_and_persist(state.config_path) do
+      {:ok, config} ->
+        {:ok,
+         %{
+           state
+           | config: config,
+             config_mtime: refreshed_config_mtime(state.config_path, current_mtime),
+             last_config_check_ms: now,
+             repos: state.repos
+         }}
+
+      {:error, reason} ->
+        Logger.warning("manager config_reload_failed config_path=#{state.config_path} reason=#{inspect(reason)}")
+
+        config_reload_error(state, now, reason)
+    end
+  end
+
+  defp config_reload_error(%State{config: nil}, _now, reason), do: {:error, reason}
+  defp config_reload_error(state, now, _reason), do: {:ok, %{state | last_config_check_ms: now}}
+
+  defp maybe_handle_config_stat_error(%State{config: nil}, _now, reason), do: {:error, reason}
+
+  defp maybe_handle_config_stat_error(state, now, reason) do
+    Logger.warning("manager config_stat_failed config_path=#{state.config_path} reason=#{inspect(reason)}")
+
+    {:ok, %{state | last_config_check_ms: now}}
   end
 
   defp reconcile(%State{config: nil} = state), do: state
@@ -409,7 +408,13 @@ defmodule SymphonyElixir.Manager do
 
     case state.fetch_state.(repo_state.repo.port, timeout_ms) do
       {:ok, payload} when is_map(payload) ->
-        %{repo_state | failure_count: 0, last_health: :ok, last_state_payload: payload, last_error: nil}
+        %{
+          repo_state
+          | failure_count: 0,
+            last_health: :ok,
+            last_state_payload: payload,
+            last_error: nil
+        }
 
       {:ok, _payload} ->
         handle_health_failure(state, repo_state, "state endpoint returned a non-object payload")
@@ -643,7 +648,8 @@ defmodule SymphonyElixir.Manager do
   defp proxy_repo_api(state, repo_state, path) do
     url = "http://127.0.0.1:#{repo_state.repo.port}#{path}"
 
-    with {:ok, response} <- Req.get(url, receive_timeout: manager_http_timeout_ms(state.config), retry: false),
+    with {:ok, response} <-
+           Req.get(url, receive_timeout: manager_http_timeout_ms(state.config), retry: false),
          {:ok, payload} <- decode_repo_api_payload(response) do
       {:ok, response.status, payload}
     else
@@ -701,7 +707,8 @@ defmodule SymphonyElixir.Manager do
 
     check_interval_ms =
       case state.config do
-        %{"manager" => %{"check_interval_seconds" => seconds}} when is_integer(seconds) and seconds > 0 ->
+        %{"manager" => %{"check_interval_seconds" => seconds}}
+        when is_integer(seconds) and seconds > 0 ->
           seconds * 1_000
 
         _ ->
@@ -751,7 +758,10 @@ defmodule SymphonyElixir.Manager do
           :stderr_to_stdout,
           args: Enum.map(runtime_args(repo), &String.to_charlist/1),
           cd: String.to_charlist(repo.repo_path),
-          env: Enum.map(env, fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end),
+          env:
+            Enum.map(env, fn {key, value} ->
+              {String.to_charlist(key), String.to_charlist(value)}
+            end),
           line: @line_bytes
         ]
       )
@@ -793,7 +803,8 @@ defmodule SymphonyElixir.Manager do
     end
   end
 
-  defp decode_state_payload(%Req.Response{status: 200, body: body}) when is_map(body), do: {:ok, body}
+  defp decode_state_payload(%Req.Response{status: 200, body: body}) when is_map(body),
+    do: {:ok, body}
 
   defp decode_state_payload(%Req.Response{status: 200, body: body}) when is_binary(body) do
     case Jason.decode(body) do
@@ -803,7 +814,8 @@ defmodule SymphonyElixir.Manager do
     end
   end
 
-  defp decode_state_payload(%Req.Response{status: status}), do: {:error, {:unexpected_status, status}}
+  defp decode_state_payload(%Req.Response{status: status}),
+    do: {:error, {:unexpected_status, status}}
 
   defp runtime_args(repo) do
     [
