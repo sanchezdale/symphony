@@ -12,6 +12,9 @@ description:
 Use this skill when the user wants Codex to configure or operate the host-side
 multi-repo Symphony supervisor introduced in this repo.
 
+If the machine is still using the removed Python manager LaunchAgent flow,
+switch to `migrate-symphony-manager` instead of following this setup path.
+
 ## Source Of Truth
 
 - Usage and config details: `elixir/README.md`

@@ -119,6 +119,10 @@ The legacy Python manager and its `scripts.symphony_manager` CLI are no longer s
 the manager through `elixir/bin/symphony manager`; this repo no longer ships a Python setup flow
 or plist generator.
 
+If you already have the removed Python manager LaunchAgent installed, use the
+repo-local migration skill at `../.codex/skills/migrate-symphony-manager/` for
+the one-time cutover to the Elixir manager flow.
+
 Minimal `~/.config/symphony/config.json` example:
 
 ```json
