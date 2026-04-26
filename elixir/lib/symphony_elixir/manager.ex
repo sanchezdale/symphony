@@ -51,6 +51,7 @@ defmodule SymphonyElixir.Manager do
     defstruct config_path: nil,
               config: nil,
               config_mtime: nil,
+              config_hash: nil,
               last_config_check_ms: nil,
               schedule_ticks: true,
               tick_ref: nil,
@@ -64,6 +65,7 @@ defmodule SymphonyElixir.Manager do
             config_path: Path.t(),
             config: map() | nil,
             config_mtime: integer() | nil,
+            config_hash: binary() | nil,
             last_config_check_ms: integer() | nil,
             schedule_ticks: boolean(),
             tick_ref: reference() | nil,
@@ -273,9 +275,9 @@ defmodule SymphonyElixir.Manager do
   defp maybe_reload_config(state, force_reload) do
     now = state.time_fn.()
 
-    case config_mtime(state.config_path) do
-      {:ok, current_mtime} ->
-        maybe_reload_config_with_mtime(state, force_reload, now, current_mtime)
+    case config_signature(state.config_path) do
+      {:ok, current_signature} ->
+        maybe_reload_config_with_signature(state, force_reload, now, current_signature)
 
       {:error, _reason} when is_nil(state.config) ->
         load_manager_config(state, now, nil)
@@ -285,22 +287,26 @@ defmodule SymphonyElixir.Manager do
     end
   end
 
-  defp maybe_reload_config_with_mtime(state, force_reload, now, current_mtime) do
-    if force_reload or is_nil(state.config) or should_reload_config?(state, now, current_mtime) do
-      load_manager_config(state, now, current_mtime)
+  defp maybe_reload_config_with_signature(state, force_reload, now, current_signature) do
+    if force_reload or is_nil(state.config) or should_reload_config?(state, current_signature) do
+      load_manager_config(state, now, current_signature)
     else
       {:ok, state}
     end
   end
 
-  defp load_manager_config(state, now, current_mtime) do
+  defp load_manager_config(state, now, current_signature) do
     case ManagerConfig.load_and_persist(state.config_path) do
       {:ok, config} ->
+        %{mtime: config_mtime, hash: config_hash} =
+          refreshed_config_signature(state.config_path, current_signature)
+
         {:ok,
          %{
            state
            | config: config,
-             config_mtime: refreshed_config_mtime(state.config_path, current_mtime),
+             config_mtime: config_mtime,
+             config_hash: config_hash,
              last_config_check_ms: now,
              repos: clear_blocked_repo_markers(state.repos)
          }}
@@ -583,6 +589,8 @@ defmodule SymphonyElixir.Manager do
     %{
       config_path: state.config_path,
       config_mtime: state.config_mtime,
+      manager_log_path: manager_log_path(state.config),
+      manager_error_log_path: manager_error_log_path(state.config),
       repos:
         state.repos
         |> Map.values()
@@ -612,6 +620,25 @@ defmodule SymphonyElixir.Manager do
       last_state_payload: repo_state.last_state_payload
     }
   end
+
+  defp manager_log_path(%{"manager" => manager}) when is_map(manager) do
+    expand_optional_snapshot_path(manager["launchd_log_path"])
+  end
+
+  defp manager_log_path(_config), do: nil
+
+  defp manager_error_log_path(%{"manager" => manager}) when is_map(manager) do
+    expand_optional_snapshot_path(manager["launchd_error_log_path"])
+  end
+
+  defp manager_error_log_path(_config), do: nil
+
+  defp expand_optional_snapshot_path(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: Path.expand(trimmed)
+  end
+
+  defp expand_optional_snapshot_path(_value), do: nil
 
   defp repo_state_response(state, repo_id) do
     with {:ok, repo_state} <- repo_state_lookup(state, repo_id) do
@@ -669,12 +696,8 @@ defmodule SymphonyElixir.Manager do
 
   defp decode_repo_api_payload(_response), do: {:error, :invalid_repo_api_payload}
 
-  defp should_reload_config?(state, now, current_mtime) do
-    reload_interval_ms = state.config["manager"]["config_reload_seconds"] * 1_000
-
-    is_nil(state.last_config_check_ms) or
-      now - state.last_config_check_ms >= reload_interval_ms or
-      current_mtime != state.config_mtime
+  defp should_reload_config?(state, current_signature) do
+    current_signature.mtime != state.config_mtime or current_signature.hash != state.config_hash
   end
 
   defp clear_blocked_repo_markers(repos) do
@@ -731,17 +754,19 @@ defmodule SymphonyElixir.Manager do
     :ok
   end
 
-  defp config_mtime(path) do
-    case File.stat(path, time: :posix) do
-      {:ok, stat} -> {:ok, stat.mtime}
-      {:error, reason} -> {:error, {:config_mtime_failed, path, reason}}
+  defp config_signature(path) do
+    with {:ok, stat} <- File.stat(path, time: :posix),
+         {:ok, contents} <- File.read(path) do
+      {:ok, %{mtime: stat.mtime, hash: :crypto.hash(:sha256, contents)}}
+    else
+      {:error, reason} -> {:error, {:config_signature_failed, path, reason}}
     end
   end
 
-  defp refreshed_config_mtime(path, fallback_mtime) do
-    case config_mtime(path) do
-      {:ok, mtime} -> mtime
-      {:error, _reason} -> fallback_mtime
+  defp refreshed_config_signature(path, fallback_signature) do
+    case config_signature(path) do
+      {:ok, signature} -> signature
+      {:error, _reason} -> fallback_signature || %{mtime: nil, hash: nil}
     end
   end
 
@@ -838,7 +863,7 @@ defmodule SymphonyElixir.Manager do
     def __test_decode_repo_api_payload__(response), do: decode_repo_api_payload(response)
 
     @doc false
-    def __test_refreshed_config_mtime__(path, fallback_mtime),
-      do: refreshed_config_mtime(path, fallback_mtime)
+    def __test_refreshed_config_signature__(path, fallback_signature),
+      do: refreshed_config_signature(path, fallback_signature)
   end
 end

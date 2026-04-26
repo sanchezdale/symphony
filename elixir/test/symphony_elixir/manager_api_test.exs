@@ -159,6 +159,8 @@ defmodule SymphonyElixir.ManagerApiTest do
       repos_payload = json_response(get(build_conn(), "/api/v1/repos"), 200)
 
       assert Enum.map(repos_payload["repos"], & &1["id"]) == ["repo-a", "repo-b"]
+      assert repos_payload["manager_log_path"] == Path.join([fixture.root, "manager.log"])
+      assert repos_payload["manager_error_log_path"] == Path.join([fixture.root, "manager.error.log"])
 
       assert Enum.any?(
                repos_payload["repos"],
@@ -353,7 +355,9 @@ defmodule SymphonyElixir.ManagerApiTest do
         "restart_backoff_seconds" => [5, 15, 30],
         "port_range" => %{"start" => 43_101, "end" => 65_535},
         "graceful_shutdown_seconds" => 10,
-        "config_reload_seconds" => 5
+        "config_reload_seconds" => 5,
+        "launchd_log_path" => Path.join(root, "manager.log"),
+        "launchd_error_log_path" => Path.join(root, "manager.error.log")
       },
       "repos" => []
     }

@@ -5,6 +5,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
+  alias SymphonyElixir.LogFile
   alias SymphonyElixir.Manager
   alias SymphonyElixirWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
@@ -17,6 +18,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
       |> assign(:notice, nil)
       |> assign(:payload, empty_payload())
       |> assign(:repos, [])
+      |> assign(:manager_snapshot, nil)
       |> assign(:selected_repo, nil)
       |> assign(:selected_repo_id, nil)
       |> assign(:now, DateTime.utc_now())
@@ -213,10 +215,24 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
                 <article class="metric-card repo-summary-card">
                   <p class="metric-label">Last error</p>
-                  <p class="summary-value summary-value-compact"><%= repo_last_error(@selected_repo) %></p>
+                  <p class="summary-value summary-value-compact">
+                    <%= repo_last_error(@selected_repo) %>
+                  </p>
                   <p class="metric-detail">
                     Restart attempts <%= @selected_repo.restart_attempts %> · Failures <%= @selected_repo.failure_count %>
                   </p>
+                </article>
+
+                <article class="metric-card repo-summary-card">
+                  <p class="metric-label">Repo log file</p>
+                  <p class="summary-value summary-value-compact mono"><%= repo_log_file(@selected_repo) %></p>
+                  <p class="metric-detail mono"><%= @selected_repo.logs_root %></p>
+                </article>
+
+                <article class="metric-card repo-summary-card">
+                  <p class="metric-label">Manager logs</p>
+                  <p class="summary-value summary-value-compact mono"><%= manager_log_path(@manager_snapshot) %></p>
+                  <p class="metric-detail mono"><%= manager_error_log_path(@manager_snapshot) %></p>
                 </article>
               </div>
             <% end %>
@@ -408,10 +424,11 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp reload_dashboard(socket, requested_repo_id) do
     case socket.assigns.mode do
       :manager ->
-        {repos, selected_repo, payload} = load_manager_dashboard(requested_repo_id)
+        {manager_snapshot, repos, selected_repo, payload} = load_manager_dashboard(requested_repo_id)
 
         socket
         |> assign(:repos, repos)
+        |> assign(:manager_snapshot, manager_snapshot)
         |> assign(:selected_repo, selected_repo)
         |> assign(:selected_repo_id, selected_repo && selected_repo.id)
         |> assign(:payload, payload)
@@ -420,6 +437,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
       :runtime ->
         socket
         |> assign(:repos, [])
+        |> assign(:manager_snapshot, nil)
         |> assign(:selected_repo, nil)
         |> assign(:selected_repo_id, nil)
         |> assign(:payload, normalize_state_payload(Presenter.state_payload(orchestrator(), snapshot_timeout_ms())))
@@ -432,10 +450,10 @@ defmodule SymphonyElixirWeb.DashboardLive do
       %{} = snapshot ->
         repos = Enum.sort_by(snapshot.repos, & &1.id)
         selected_repo = select_repo(repos, requested_repo_id)
-        {repos, selected_repo, load_manager_payload(selected_repo)}
+        {snapshot, repos, selected_repo, load_manager_payload(selected_repo)}
 
       :unavailable ->
-        {[], nil, unavailable_payload("manager_unavailable", "Manager is unavailable")}
+        {nil, [], nil, unavailable_payload("manager_unavailable", "Manager is unavailable")}
     end
   end
 
@@ -750,6 +768,17 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp repo_last_error(%{last_error: nil}), do: "None"
   defp repo_last_error(%{last_error: error}) when is_binary(error), do: error
   defp repo_last_error(_repo), do: "Unknown"
+
+  defp repo_log_file(%{logs_root: logs_root}) when is_binary(logs_root),
+    do: LogFile.default_log_file(logs_root)
+
+  defp repo_log_file(_repo), do: "n/a"
+
+  defp manager_log_path(%{manager_log_path: path}) when is_binary(path), do: path
+  defp manager_log_path(_snapshot), do: "n/a"
+
+  defp manager_error_log_path(%{manager_error_log_path: path}) when is_binary(path), do: path
+  defp manager_error_log_path(_snapshot), do: "n/a"
 
   defp restart_repo_disabled?(%{enabled: false}), do: true
   defp restart_repo_disabled?(_repo), do: false
