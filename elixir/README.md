@@ -112,6 +112,8 @@ Current manager behavior:
   inline `env`, and `port`
 - polls each repo's `/api/v1/state` endpoint to track health and applies restart backoff on failure
 - reloads config changes so repos can be added, removed, enabled, disabled, or restarted cleanly
+- exposes repo log files plus configured manager stdout/stderr log paths in the manager dashboard and
+  `/api/v1/repos`
 
 The legacy Python manager is still present in this repository during the migration, but the Elixir
 manager is the new runtime layer going forward.
