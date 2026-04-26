@@ -302,7 +302,7 @@ defmodule SymphonyElixir.Manager do
            | config: config,
              config_mtime: refreshed_config_mtime(state.config_path, current_mtime),
              last_config_check_ms: now,
-             repos: state.repos
+             repos: clear_blocked_repo_markers(state.repos)
          }}
 
       {:error, reason} ->
@@ -675,6 +675,12 @@ defmodule SymphonyElixir.Manager do
     is_nil(state.last_config_check_ms) or
       now - state.last_config_check_ms >= reload_interval_ms or
       current_mtime != state.config_mtime
+  end
+
+  defp clear_blocked_repo_markers(repos) do
+    Map.new(repos, fn {repo_id, repo_state} ->
+      {repo_id, %{repo_state | blocked_reason: nil, blocked_until_config_change: false}}
+    end)
   end
 
   defp runtime_config_changed?(%RepoConfig{} = previous_repo, %RepoConfig{} = repo) do
