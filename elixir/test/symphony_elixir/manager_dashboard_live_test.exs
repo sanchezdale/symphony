@@ -34,20 +34,7 @@ defmodule SymphonyElixir.ManagerDashboardLiveTest do
 
       next_snapshot =
         update_in(Keyword.fetch!(state, :snapshot).repos, fn repos ->
-          Enum.map(repos, fn repo ->
-            if repo.id == repo_id do
-              %{
-                repo
-                | health: :starting,
-                  running: true,
-                  restart_attempts: 0,
-                  next_start_time_ms: 0,
-                  last_error: nil
-              }
-            else
-              repo
-            end
-          end)
+          Enum.map(repos, &restart_snapshot_repo(&1, repo_id))
         end)
 
       next_state = Keyword.put(state, :snapshot, next_snapshot)
@@ -60,6 +47,19 @@ defmodule SymphonyElixir.ManagerDashboardLiveTest do
       send(Keyword.fetch!(state, :parent), :restart_manager)
       {:reply, :ok, state}
     end
+
+    defp restart_snapshot_repo(%{id: repo_id} = repo, repo_id) do
+      %{
+        repo
+        | health: :starting,
+          running: true,
+          restart_attempts: 0,
+          next_start_time_ms: 0,
+          last_error: nil
+      }
+    end
+
+    defp restart_snapshot_repo(repo, _repo_id), do: repo
   end
 
   setup do
