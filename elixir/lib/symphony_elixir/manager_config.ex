@@ -1,6 +1,6 @@
 defmodule SymphonyElixir.ManagerConfig do
   @moduledoc """
-  Loader and validator for the legacy multi-repo manager `config.json`.
+  Loader and validator for the multi-repo manager `config.json`.
   """
 
   @default_port_range %{start: 43_100, end: 48_999}

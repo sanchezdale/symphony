@@ -62,7 +62,7 @@ defmodule SymphonyElixir.ManagerConfigTest do
     end)
   end
 
-  test "validate accepts valid legacy config" do
+  test "validate accepts valid manager config" do
     assert :ok = ManagerConfig.validate(valid_config())
   end
 
