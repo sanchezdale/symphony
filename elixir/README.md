@@ -85,8 +85,8 @@ automatically.
 
 ## Multi-Repo Manager
 
-The same wrapper can also start the experimental Elixir multi-repo manager that supervises one
-Symphony child runtime per enabled repo in `~/.config/symphony/config.json`:
+The same wrapper starts the supported Elixir multi-repo manager, which supervises one Symphony
+child runtime per enabled repo in `~/.config/symphony/config.json`:
 
 ```bash
 ~/code/symphony/elixir/bin/symphony \
@@ -105,7 +105,7 @@ Use `--config /path/to/config.json` to point at a non-default manager config:
 
 Current manager behavior:
 
-- loads the legacy manager config schema from `~/.config/symphony/config.json`
+- loads manager config from `~/.config/symphony/config.json`
 - assigns and persists missing repo ports within `manager.port_range`
 - starts enabled repos automatically and skips disabled repos
 - launches each repo runtime with its configured `workflow_path`, `logs_root`, `local_env_path`,
@@ -114,9 +114,6 @@ Current manager behavior:
 - reloads config changes so repos can be added, removed, enabled, disabled, or restarted cleanly
 - exposes repo log files plus configured manager stdout/stderr log paths in the manager dashboard and
   `/api/v1/repos`
-
-The legacy Python manager is still present in this repository during the migration, but the Elixir
-manager is the new runtime layer going forward.
 
 ## Configuration
 

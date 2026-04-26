@@ -84,6 +84,32 @@ defmodule SymphonyElixir.ManagerTest do
     end)
   end
 
+  test "snapshot omits manager log paths when manager config is unavailable" do
+    with_manager_fixture!(fn fixture ->
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end,
+          runtime_start: fn repo, _config, _env -> {:ok, {:runtime, repo.id}} end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms ->
+            {:ok, %{"running" => [], "retrying" => []}}
+          end
+        )
+
+      :sys.replace_state(manager, fn state ->
+        %{state | config: Map.drop(state.config, ["manager"])}
+      end)
+
+      snapshot = Manager.snapshot(manager)
+
+      assert snapshot.manager_log_path == nil
+      assert snapshot.manager_error_log_path == nil
+    end)
+  end
+
   test "reloads config to disable, enable, add, and remove repos cleanly" do
     with_manager_fixture!(fn fixture ->
       parent = self()

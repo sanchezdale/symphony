@@ -3,22 +3,17 @@
 Symphony turns project work into isolated, autonomous implementation runs, allowing teams to manage
 work instead of supervising coding agents.
 
-## Multi-Repo Host Supervisor
+## Multi-Repo Manager
 
-This repo also includes a host-side Python utility for managing multiple Symphony instances on one
-machine. See [scripts/symphony_manager/README.md](scripts/symphony_manager/README.md).
-
-An experimental Elixir manager runtime also exists behind
-[`elixir/bin/symphony manager`](elixir/README.md). The Python flow remains the documented operator
-path until the broader multi-repo manager migration is complete.
+The supported multi-repo manager lives in the Elixir runtime behind
+[`elixir/bin/symphony manager`](elixir/README.md).
 
 It provides:
 
-- a scaffolded per-user config at `~/.config/symphony/config.json`
-- prerequisite checks for a cold host before launchd setup
-- launchd plist generation without automatic installation
+- a per-user config at `~/.config/symphony/config.json`
 - a long-running supervisor that assigns stable loopback ports, starts one Symphony per repo, and
   restarts unhealthy processes using `/api/v1/state`
+- a manager-aware dashboard and JSON API for repo status, issue activity, and restart control
 
 [![Symphony demo video preview](.github/media/symphony-demo-poster.jpg)](.github/media/symphony-demo.mp4)
 
