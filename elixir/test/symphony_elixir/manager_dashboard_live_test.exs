@@ -91,6 +91,9 @@ defmodule SymphonyElixir.ManagerDashboardLiveTest do
     assert html =~ "Restart Repo"
     assert html =~ "Restart Manager"
     assert html =~ "MT-A"
+    assert html =~ "/tmp/logs/repo-a/log/symphony.log"
+    assert html =~ "/tmp/manager.log"
+    assert html =~ "/tmp/manager.error.log"
     refute html =~ "MT-B"
     assert html =~ "/api/v1/repos/repo-a/issues/MT-A"
     assert html =~ "REPO-A"
@@ -156,6 +159,8 @@ defmodule SymphonyElixir.ManagerDashboardLiveTest do
     %{
       config_path: "/tmp/manager.json",
       config_mtime: 1,
+      manager_log_path: "/tmp/manager.log",
+      manager_error_log_path: "/tmp/manager.error.log",
       repos: repos
     }
   end

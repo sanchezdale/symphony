@@ -228,7 +228,7 @@ defmodule SymphonyElixir.ManagerTest do
     end)
   end
 
-  test "keeps blocked repos blocked until the effective config changes" do
+  test "keeps blocked repos blocked until the config file changes" do
     with_manager_fixture!(fn fixture ->
       parent = self()
       {:ok, clock} = Agent.start_link(fn -> 0 end)
@@ -272,6 +272,7 @@ defmodule SymphonyElixir.ManagerTest do
 
       refute_receive {:runtime_started, "repo-a", _env}
 
+      File.write!(missing_env_path, "LOCAL_ONLY=from_file\nOVERRIDE_ME=from_file\n")
       Agent.update(clock, &(&1 + 5_000))
       still_blocked_snapshot = Manager.tick(manager)
       refute_receive {:runtime_started, "repo-a", _env}
@@ -281,42 +282,13 @@ defmodule SymphonyElixir.ManagerTest do
                &(&1.id == "repo-a" and &1.health == :blocked and
                    &1.blocked_reason == "local_env_path does not exist: #{missing_env_path}" and not &1.running)
              )
-
-      assert {:ok, persisted_config} = ManagerConfig.load_raw(fixture.config_path)
-      local_env_path = Path.join([fixture.root, "repo-a", "local.env"])
-
-      updated_config =
-        persisted_config
-        |> put_in(["repos", Access.at(0), "local_env_path"], local_env_path)
-        |> put_in(
-          ["repos", Access.at(0), "env"],
-          %{
-            "INLINE_ONLY" => "from_reload",
-            "OVERRIDE_ME" => "from_reload"
-          }
-        )
-
-      write_config!(fixture.config_path, updated_config)
-
-      reloaded_snapshot = Manager.reload_config(manager)
-
-      assert_receive {:runtime_started, "repo-a", second_env}
-      assert second_env["INLINE_ONLY"] == "from_reload"
-      assert second_env["OVERRIDE_ME"] == "from_reload"
-      assert second_env["LOCAL_ONLY"] == "from_file"
-
-      assert Enum.any?(
-               reloaded_snapshot.repos,
-               &(&1.id == "repo-a" and &1.running and &1.health == :starting and is_nil(&1.blocked_reason))
-             )
     end)
   end
 
-  test "does not retry blocked repos when unrelated config changes" do
+  test "retries blocked repos when unrelated config changes reload the manager" do
     with_manager_fixture!(fn fixture ->
       parent = self()
       {:ok, clock} = Agent.start_link(fn -> 0 end)
-      {:ok, attempts} = Agent.start_link(fn -> %{} end)
       missing_env_path = Path.join([fixture.root, "repo-a", "missing.env"])
 
       blocked_config =
@@ -334,16 +306,9 @@ defmodule SymphonyElixir.ManagerTest do
           name: nil,
           schedule_ticks: false,
           time_fn: fn -> Agent.get(clock, & &1) end,
-          runtime_start: fn repo, _config, _env ->
-            attempt =
-              Agent.get_and_update(attempts, fn counts ->
-                next_attempt = Map.get(counts, repo.id, 0) + 1
-                {next_attempt, Map.put(counts, repo.id, next_attempt)}
-              end)
-
-            send(parent, {:runtime_start_attempted, repo.id, attempt})
-
-            {:ok, {:runtime, repo.id, attempt}}
+          runtime_start: fn repo, _config, env ->
+            send(parent, {:runtime_started, repo.id, env})
+            {:ok, {:runtime, repo.id}}
           end,
           runtime_stop: fn handle, timeout_ms ->
             send(parent, {:runtime_stopped, handle, timeout_ms})
@@ -354,7 +319,7 @@ defmodule SymphonyElixir.ManagerTest do
           end
         )
 
-      refute_receive {:runtime_start_attempted, "repo-a", _}
+      refute_receive {:runtime_started, "repo-a", _env}
 
       initial_snapshot = Manager.snapshot(manager)
 
@@ -370,19 +335,18 @@ defmodule SymphonyElixir.ManagerTest do
         put_in(persisted_config, ["repos", Access.at(1), "enabled"], true)
 
       write_config!(fixture.config_path, updated_config)
+      File.write!(missing_env_path, "LOCAL_ONLY=from_file\nOVERRIDE_ME=from_file\n")
       Agent.update(clock, &(&1 + 5_000))
 
       reloaded_snapshot = Manager.tick(manager)
 
-      assert_receive {:runtime_start_attempted, "repo-b", 1}
-      refute_receive {:runtime_start_attempted, "repo-a", _}
+      assert_receive {:runtime_started, "repo-a", repo_a_env}
+      assert_receive {:runtime_started, "repo-b", repo_b_env}
+      assert repo_a_env["LOCAL_ONLY"] == "from_file"
+      assert repo_a_env["OVERRIDE_ME"] == "from_repo"
+      assert repo_b_env["INLINE_ONLY"] == "from_repo"
 
-      assert Enum.any?(
-               reloaded_snapshot.repos,
-               &(&1.id == "repo-a" and &1.health == :blocked and
-                   &1.blocked_reason == "local_env_path does not exist: #{missing_env_path}" and not &1.running)
-             )
-
+      assert Enum.any?(reloaded_snapshot.repos, &(&1.id == "repo-a" and &1.running and &1.health == :starting))
       assert Enum.any?(reloaded_snapshot.repos, &(&1.id == "repo-b" and &1.running and &1.health == :starting))
     end)
   end
@@ -1294,7 +1258,8 @@ defmodule SymphonyElixir.ManagerTest do
     assert {:error, :invalid_repo_api_payload} =
              Manager.__test_decode_repo_api_payload__(%Req.Response{body: nil})
 
-    assert 123 = Manager.__test_refreshed_config_mtime__(missing_path, 123)
+    assert %{mtime: 123, hash: <<1, 2, 3>>} =
+             Manager.__test_refreshed_config_signature__(missing_path, %{mtime: 123, hash: <<1, 2, 3>>})
   end
 
   defp with_manager_fixture!(fun) do
