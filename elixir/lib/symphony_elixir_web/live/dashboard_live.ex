@@ -585,8 +585,6 @@ defmodule SymphonyElixirWeb.DashboardLive do
     }
   end
 
-  defp normalize_state_payload(_payload), do: unavailable_payload("snapshot_unavailable", "Snapshot unavailable")
-
   defp normalize_running_entry(entry) do
     %{
       issue_id: read(entry, :issue_id),
@@ -766,7 +764,6 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp repo_restart_error(:repo_disabled), do: "Selected repo is disabled and cannot be restarted."
   defp repo_restart_error(:repo_not_found), do: "Selected repo was not found."
   defp repo_restart_error(:unavailable), do: "Manager is unavailable."
-  defp repo_restart_error(_reason), do: "Repo restart failed."
 
   defp pretty_value(nil), do: "n/a"
   defp pretty_value(value), do: inspect(value, pretty: true, limit: :infinity)

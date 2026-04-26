@@ -1494,8 +1494,6 @@ defmodule SymphonyElixir.StatusDashboard do
     end)
   end
 
-  defp first_tool_input_question(_payload), do: nil
-
   defp normalize_tool_input_questions(questions) when is_list(questions), do: questions
   defp normalize_tool_input_questions(_questions), do: []
 

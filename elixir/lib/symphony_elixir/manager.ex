@@ -277,13 +277,16 @@ defmodule SymphonyElixir.Manager do
       {:ok, current_mtime} ->
         maybe_reload_config_with_mtime(state, force_reload, now, current_mtime)
 
+      {:error, _reason} when is_nil(state.config) ->
+        load_manager_config(state, now, nil)
+
       {:error, reason} ->
         maybe_handle_config_stat_error(state, now, reason)
     end
   end
 
   defp maybe_reload_config_with_mtime(state, force_reload, now, current_mtime) do
-    if force_reload or should_reload_config?(state, now, current_mtime) do
+    if force_reload or is_nil(state.config) or should_reload_config?(state, now, current_mtime) do
       load_manager_config(state, now, current_mtime)
     else
       {:ok, state}
@@ -312,15 +315,11 @@ defmodule SymphonyElixir.Manager do
   defp config_reload_error(%State{config: nil}, _now, reason), do: {:error, reason}
   defp config_reload_error(state, now, _reason), do: {:ok, %{state | last_config_check_ms: now}}
 
-  defp maybe_handle_config_stat_error(%State{config: nil}, _now, reason), do: {:error, reason}
-
   defp maybe_handle_config_stat_error(state, now, reason) do
     Logger.warning("manager config_stat_failed config_path=#{state.config_path} reason=#{inspect(reason)}")
 
     {:ok, %{state | last_config_check_ms: now}}
   end
-
-  defp reconcile(%State{config: nil} = state), do: state
 
   defp reconcile(state) do
     desired_repo_ids =
@@ -670,8 +669,6 @@ defmodule SymphonyElixir.Manager do
 
   defp decode_repo_api_payload(_response), do: {:error, :invalid_repo_api_payload}
 
-  defp should_reload_config?(%State{config: nil}, _now, _current_mtime), do: true
-
   defp should_reload_config?(state, now, current_mtime) do
     reload_interval_ms = state.config["manager"]["config_reload_seconds"] * 1_000
 
@@ -799,7 +796,6 @@ defmodule SymphonyElixir.Manager do
       {:ok, payload}
     else
       {:error, _} = error -> error
-      other -> {:error, other}
     end
   end
 
@@ -830,4 +826,13 @@ defmodule SymphonyElixir.Manager do
 
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
+
+  if Code.ensure_loaded?(Mix) and Mix.env() == :test do
+    @doc false
+    def __test_decode_repo_api_payload__(response), do: decode_repo_api_payload(response)
+
+    @doc false
+    def __test_refreshed_config_mtime__(path, fallback_mtime),
+      do: refreshed_config_mtime(path, fallback_mtime)
+  end
 end

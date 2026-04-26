@@ -436,7 +436,15 @@ defmodule SymphonyElixir.CoreTest do
       end)
 
       send(pid, :tick)
-      Process.sleep(100)
+
+      wait_until!(fn ->
+        state = :sys.get_state(pid)
+
+        not Map.has_key?(state.running, issue_id) and
+          not MapSet.member?(state.claimed, issue_id) and
+          not Process.alive?(agent_pid)
+      end)
+
       state = :sys.get_state(pid)
 
       refute Map.has_key?(state.running, issue_id)
@@ -565,7 +573,12 @@ defmodule SymphonyElixir.CoreTest do
     end)
 
     send(pid, {:DOWN, ref, :process, self(), :normal})
-    Process.sleep(50)
+
+    wait_until!(fn ->
+      state = :sys.get_state(pid)
+      not Map.has_key?(state.running, issue_id) and match?(%{attempt: 1}, state.retry_attempts[issue_id])
+    end)
+
     state = :sys.get_state(pid)
 
     refute Map.has_key?(state.running, issue_id)
@@ -606,7 +619,11 @@ defmodule SymphonyElixir.CoreTest do
     end)
 
     send(pid, {:DOWN, ref, :process, self(), :boom})
-    Process.sleep(50)
+
+    wait_until!(fn ->
+      match?(%{attempt: 3}, :sys.get_state(pid).retry_attempts[issue_id])
+    end)
+
     state = :sys.get_state(pid)
 
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
@@ -645,7 +662,11 @@ defmodule SymphonyElixir.CoreTest do
     end)
 
     send(pid, {:DOWN, ref, :process, self(), :boom})
-    Process.sleep(50)
+
+    wait_until!(fn ->
+      match?(%{attempt: 1}, :sys.get_state(pid).retry_attempts[issue_id])
+    end)
+
     state = :sys.get_state(pid)
 
     assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
@@ -812,6 +833,24 @@ defmodule SymphonyElixir.CoreTest do
 
     assert remaining_ms >= min_remaining_ms
     assert remaining_ms <= max_remaining_ms
+  end
+
+  defp wait_until!(predicate, timeout_ms \\ 1_000) do
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_until(predicate, deadline_ms)
+  end
+
+  defp do_wait_until(predicate, deadline_ms) do
+    if predicate.() do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) >= deadline_ms do
+        flunk("condition was not met before timeout")
+      else
+        Process.sleep(10)
+        do_wait_until(predicate, deadline_ms)
+      end
+    end
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)

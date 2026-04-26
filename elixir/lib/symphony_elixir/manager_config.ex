@@ -40,7 +40,7 @@ defmodule SymphonyElixir.ManagerConfig do
 
   @spec default_config_path() :: Path.t()
   def default_config_path do
-    Path.join([System.user_home!(), ".config", "symphony", "config.json"])
+    Path.join([user_home(), ".config", "symphony", "config.json"])
   end
 
   @spec load(Path.t()) :: load_result()
@@ -492,8 +492,6 @@ defmodule SymphonyElixir.ManagerConfig do
   defp assign_port_for_repo(%{} = repo_entry, _start_port, _end_port, reserved),
     do: {:ok, repo_entry, reserved}
 
-  defp assign_port_for_repo(other, _start_port, _end_port, reserved), do: {:ok, other, reserved}
-
   defp choose_available_port(start_port, end_port, reserved) do
     start_port..end_port
     |> Enum.find(fn port ->
@@ -535,6 +533,13 @@ defmodule SymphonyElixir.ManagerConfig do
 
   defp normalize_port_range(port_range) do
     %{"start" => port_range["start"], "end" => port_range["end"]}
+  end
+
+  defp user_home do
+    case System.get_env("HOME") do
+      home when is_binary(home) and home != "" -> home
+      _ -> System.user_home!()
+    end
   end
 
   defp expand_optional_path(nil), do: nil
