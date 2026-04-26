@@ -115,6 +115,54 @@ Current manager behavior:
 - exposes repo log files plus configured manager stdout/stderr log paths in the manager dashboard and
   `/api/v1/repos`
 
+The legacy Python manager and its `scripts.symphony_manager` CLI are no longer supported. Start
+the manager through `elixir/bin/symphony manager`; this repo no longer ships a Python setup flow
+or plist generator.
+
+Minimal `~/.config/symphony/config.json` example:
+
+```json
+{
+  "version": 1,
+  "symphony_repo": "~/code/symphony",
+  "symphony_bin": "~/code/symphony/elixir/bin/symphony",
+  "manager": {
+    "check_interval_seconds": 30,
+    "http_timeout_seconds": 5,
+    "failure_threshold": 3,
+    "restart_backoff_seconds": [5, 15, 30],
+    "port_range": {
+      "start": 43100,
+      "end": 48999
+    },
+    "graceful_shutdown_seconds": 10,
+    "config_reload_seconds": 5
+  },
+  "repos": [
+    {
+      "id": "my-repo",
+      "name": "My Repo",
+      "repo_path": "~/code/my-repo",
+      "workflow_path": "~/.config/symphony/workflows/my-repo/WORKFLOW.md",
+      "logs_root": "~/var/log/symphony/my-repo",
+      "local_env_path": "~/code/my-repo/local.env",
+      "enabled": true,
+      "env": {}
+    }
+  ]
+}
+```
+
+Manager config notes:
+
+- Omit `port` from a repo entry to let the manager assign and persist one automatically.
+- Use `local_env_path` for repo-specific values such as `LINEAR_API_KEY`,
+  `SYMPHONY_PROJECT_SLUG`, and `SYMPHONY_WORKSPACE_ROOT`.
+- `symphony_bin` should point at the checked-in wrapper under `elixir/bin/symphony`.
+- If you manage the manager with `launchd` yourself, create the plist outside this repo. The
+  checked-in [`../scripts/symphony-restart`](../scripts/symphony-restart) helper can restart an
+  already-installed LaunchAgent, but Symphony no longer generates plists for you.
+
 ## Configuration
 
 Pass a custom workflow file path to `./bin/symphony` when starting the service:
