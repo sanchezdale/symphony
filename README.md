@@ -6,14 +6,27 @@ work instead of supervising coding agents.
 ## Multi-Repo Manager
 
 The supported multi-repo manager lives in the Elixir runtime behind
-[`elixir/bin/symphony manager`](elixir/README.md).
+[`elixir/bin/symphony manager`](elixir/README.md#multi-repo-manager).
 
 It provides:
 
 - a per-user config at `~/.config/symphony/config.json`
-- a long-running supervisor that assigns stable loopback ports, starts one Symphony per repo, and
-  restarts unhealthy processes using `/api/v1/state`
+- a long-running supervisor that assigns stable loopback ports, starts one Symphony runtime per
+  enabled repo, and restarts unhealthy repo processes using `/api/v1/state`
 - a manager-aware dashboard and JSON API for repo status, issue activity, and restart control
+
+Normal operator flow:
+
+1. Create `~/.config/symphony/config.json` plus one `~/.config/symphony/workflows/<repo>/WORKFLOW.md`
+   per managed repo.
+2. Start `elixir/bin/symphony manager --i-understand-that-this-will-be-running-without-the-usual-guardrails`
+   in the foreground first, adding `--port 4000` when you want the dashboard and JSON API.
+3. Let the manager assign missing repo ports, launch enabled repos, reload config changes, and
+   restart unhealthy repo runtimes with backoff.
+4. Use the dashboard or manager API to switch between repos, inspect repo-scoped issue activity,
+   restart a selected repo, or queue a manager restart.
+5. If the machine still uses the removed Python-manager LaunchAgent flow, migrate with the
+   repo-local `migrate-symphony-manager` skill instead of reviving the old CLI.
 
 [![Symphony demo video preview](.github/media/symphony-demo-poster.jpg)](.github/media/symphony-demo.mp4)
 

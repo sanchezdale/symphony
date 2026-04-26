@@ -106,11 +106,8 @@ Use `--config /path/to/config.json` to point at a non-default manager config:
 Current manager behavior:
 
 - loads manager config from `~/.config/symphony/config.json`
+- supervises one child Symphony runtime per enabled repo entry
 - assigns and persists missing repo ports within `manager.port_range`
-- starts enabled repos automatically and skips disabled repos
-- launches each repo runtime with its configured `workflow_path`, `logs_root`, `local_env_path`,
-  inline `env`, and `port`
-- polls each repo's `/api/v1/state` endpoint to track health and applies restart backoff on failure
 - reloads config changes so repos can be added, removed, enabled, disabled, or restarted cleanly
 - exposes repo log files plus configured manager stdout/stderr log paths in the manager dashboard and
   `/api/v1/repos`
@@ -119,9 +116,11 @@ The legacy Python manager and its `scripts.symphony_manager` CLI are no longer s
 the manager through `elixir/bin/symphony manager`; this repo no longer ships a Python setup flow
 or plist generator.
 
-If you already have the removed Python manager LaunchAgent installed, use the
-repo-local migration skill at `../.codex/skills/migrate-symphony-manager/` for
-the one-time cutover to the Elixir manager flow.
+If you already have the removed Python manager LaunchAgent installed, the default upgrade route is
+the repo-local migration skill at `../.codex/skills/migrate-symphony-manager/`. It audits the
+existing manager config, rewrites the installed LaunchAgent to the Elixir manager command, and
+verifies repo health after the cutover. Use the separate `setup-symphony-manager` skill only for
+net-new installs.
 
 Minimal `~/.config/symphony/config.json` example:
 
@@ -163,9 +162,39 @@ Manager config notes:
 - Use `local_env_path` for repo-specific values such as `LINEAR_API_KEY`,
   `SYMPHONY_PROJECT_SLUG`, and `SYMPHONY_WORKSPACE_ROOT`.
 - `symphony_bin` should point at the checked-in wrapper under `elixir/bin/symphony`.
+- `repos[].env` overrides both the shell environment and values loaded from `local_env_path`.
+- `manager.launchd_log_path` and `manager.launchd_error_log_path` are optional, but when present
+  they show up in the manager dashboard and `/api/v1/repos`.
 - If you manage the manager with `launchd` yourself, create the plist outside this repo. The
   checked-in [`../scripts/symphony-restart`](../scripts/symphony-restart) helper can restart an
   already-installed LaunchAgent, but Symphony no longer generates plists for you.
+
+Recommended setup flow:
+
+1. Build `./bin/symphony` in this `elixir/` directory first.
+2. Create `~/.config/symphony/config.json` from the example above.
+3. Create one `~/.config/symphony/workflows/<repo>/WORKFLOW.md` per repo entry.
+4. Prefer `repos[].local_env_path` for repo-specific secrets and workflow inputs; keep `repos[].env`
+   for explicit per-repo overrides.
+5. Start the manager in the foreground first, then add `--port 4000` once you want the dashboard
+   or JSON API.
+
+Manager architecture and lifecycle:
+
+- The manager owns cross-repo concerns: config reload, port assignment, health probes, restart
+  backoff, repo selection, and manager-mode dashboard/API responses.
+- Each child repo runtime owns its own workflow file, workspaces, issue polling, logs, and
+  repo-local `/api/v1/*` observability endpoints.
+- On boot, the manager validates `config.json`, expands repo paths, assigns any missing ports inside
+  `manager.port_range`, persists those assigned ports back to disk, and starts enabled repos.
+- A running repo is health-checked through `http://127.0.0.1:<repo-port>/api/v1/state`. Failures
+  below `manager.failure_threshold` leave the repo in a failing state; hitting the threshold stops
+  the runtime and schedules a restart using `manager.restart_backoff_seconds`.
+- If a repo is missing a required prerequisite such as `repo_path`, `workflow_path`,
+  `local_env_path`, or `symphony_bin`, the manager blocks that repo until the next config reload.
+- The manager re-reads `config.json` every `manager.config_reload_seconds`. Changing `repo_path`,
+  `workflow_path`, `logs_root`, `local_env_path`, `env`, or `port` restarts only that repo;
+  adding, removing, enabling, or disabling repos does not require a manager restart.
 
 ## Configuration
 
@@ -316,9 +345,17 @@ When the HTTP server is started in manager mode, the dashboard switches from a
 single-runtime view to a repo-scoped control surface:
 
 - repo picker to switch between managed repos without leaving `/`
-- repo-scoped session and retry data for the selected repo
+- repo-scoped session, retry, issue-detail links, and log-path data for the selected repo
 - `Restart Repo` and `Restart Manager` controls from the dashboard
 - manager health summaries for selected repos, including unavailable states
+
+Operator restart semantics:
+
+- `Restart Repo` stops the selected enabled repo runtime immediately and queues a fresh start for
+  that repo without disturbing the others.
+- `Restart Manager` cleanly stops the manager process. If you run the manager under `launchd` or
+  another host supervisor, that outer supervisor brings it back; if you started it in the
+  foreground, the command exits and you restart it manually.
 
 Current API routes include:
 
@@ -336,6 +373,14 @@ manager-scoped operations:
 - `GET /api/v1/repos/<repo_id>/issues/<issue_identifier>`
 - `POST /api/v1/repos/<repo_id>/restart`
 - `POST /api/v1/manager/restart`
+
+Manager-mode API semantics:
+
+- Repo-scoped reads return `503 repo_unavailable` while a repo runtime is down or waiting for
+  restart, `404 repo_not_found` when the repo id is unknown, and `409 repo_disabled` when an
+  operation targets a disabled repo.
+- `POST /api/v1/repos/<repo_id>/restart` returns `202` after the repo restart is queued.
+- `POST /api/v1/manager/restart` returns `202` after the manager shutdown is queued.
 
 `POST /api/v1/<issue_identifier>/approve` is intended for operator fallback when a workflow is not
 running with `codex.approval_policy: never`. Symphony records the pending approval request, queues
