@@ -126,55 +126,7 @@ defmodule SymphonyElixir.Orchestrator do
         {:noreply, state}
 
       issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
-        pending_approval = pending_approval_from_running_entry(running_entry)
-
-        state =
-          case reason do
-            :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              error =
-                cond do
-                  is_map(pending_approval) and pending_approval.type == "approval_required" ->
-                    "approval required"
-
-                  is_map(pending_approval) and pending_approval.type == "turn_input_required" ->
-                    "operator input required"
-
-                  true ->
-                    "agent exited: #{inspect(reason)}"
-                end
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: error,
-                pending_approval: pending_approval,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
-
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-        notify_dashboard()
-        {:noreply, state}
+        {:noreply, handle_running_issue_exit(state, issue_id, reason)}
     end
   end
 
@@ -343,7 +295,8 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @doc false
-  @spec select_worker_host_for_test(term(), String.t() | nil) :: String.t() | nil | :no_worker_capacity
+  @spec select_worker_host_for_test(term(), String.t() | nil) ::
+          String.t() | nil | :no_worker_capacity
   def select_worker_host_for_test(%State{} = state, preferred_worker_host) do
     select_worker_host(state, preferred_worker_host)
   end
@@ -673,12 +626,17 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
-    case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
+    case revalidate_issue_for_dispatch(
+           issue,
+           &Tracker.fetch_issue_states_by_ids/1,
+           terminal_state_set()
+         ) do
       {:ok, %Issue{} = refreshed_issue} ->
         do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}")
+
         state
 
       {:skip, %Issue{} = refreshed_issue} ->
@@ -688,6 +646,7 @@ defmodule SymphonyElixir.Orchestrator do
 
       {:error, reason} ->
         Logger.warning("Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
+
         state
     end
   end
@@ -698,6 +657,7 @@ defmodule SymphonyElixir.Orchestrator do
     case select_worker_host(state, preferred_worker_host) do
       :no_worker_capacity ->
         Logger.debug("No SSH worker slots available for #{issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
+
         state
 
       worker_host ->
@@ -836,7 +796,8 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
-  defp pop_retry_attempt_state(%State{} = state, issue_id, retry_token) when is_reference(retry_token) do
+  defp pop_retry_attempt_state(%State{} = state, issue_id, retry_token)
+       when is_reference(retry_token) do
     case Map.get(state.retry_attempts, issue_id) do
       %{attempt: attempt, retry_token: ^retry_token} = retry_entry ->
         metadata = %{
@@ -957,7 +918,8 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
-  defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do
+  defp retry_delay(attempt, metadata)
+       when is_integer(attempt) and attempt > 0 and is_map(metadata) do
     if metadata[:delay_type] == :continuation and attempt == 1 do
       @continuation_retry_delay_ms
     else
@@ -967,7 +929,11 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp failure_retry_delay(attempt) do
     max_delay_power = min(attempt - 1, 10)
-    min(@failure_retry_base_ms * (1 <<< max_delay_power), Config.settings!().agent.max_retry_backoff_ms)
+
+    min(
+      @failure_retry_base_ms * (1 <<< max_delay_power),
+      Config.settings!().agent.max_retry_backoff_ms
+    )
   end
 
   defp normalize_retry_attempt(attempt) when is_integer(attempt) and attempt > 0, do: attempt
@@ -1047,7 +1013,8 @@ defmodule SymphonyElixir.Orchestrator do
     |> elem(0)
   end
 
-  defp running_worker_host_count(running, worker_host) when is_map(running) and is_binary(worker_host) do
+  defp running_worker_host_count(running, worker_host)
+       when is_map(running) and is_binary(worker_host) do
     Enum.count(running, fn
       {_issue_id, %{worker_host: ^worker_host}} -> true
       _ -> false
@@ -1322,7 +1289,8 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
-  defp pending_issue_lookup(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+  defp pending_issue_lookup(%State{} = state, issue_identifier)
+       when is_binary(issue_identifier) do
     running_match =
       Enum.find(state.running, fn
         {_issue_id, %{identifier: ^issue_identifier}} -> true
@@ -1355,7 +1323,10 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp put_approval_override(%State{} = state, issue_id, approval_policy_override)
        when is_binary(issue_id) and is_binary(approval_policy_override) do
-    %{state | approval_overrides: Map.put(state.approval_overrides, issue_id, approval_policy_override)}
+    %{
+      state
+      | approval_overrides: Map.put(state.approval_overrides, issue_id, approval_policy_override)
+    }
   end
 
   defp schedule_immediate_retry(%State{} = state, issue_id) when is_binary(issue_id) do
@@ -1440,6 +1411,81 @@ defmodule SymphonyElixir.Orchestrator do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
   end
+
+  defp handle_running_issue_exit(state, issue_id, reason) do
+    {running_entry, state} = pop_running_entry(state, issue_id)
+    state = record_session_completion_totals(state, running_entry)
+    session_id = running_entry_session_id(running_entry)
+    pending_approval = pending_approval_from_running_entry(running_entry)
+
+    next_state =
+      state
+      |> apply_running_issue_exit(issue_id, running_entry, reason, pending_approval, session_id)
+
+    Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
+
+    notify_dashboard()
+    next_state
+  end
+
+  defp apply_running_issue_exit(
+         state,
+         issue_id,
+         running_entry,
+         :normal,
+         _pending_approval,
+         session_id
+       ) do
+    Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+    state
+    |> complete_issue(issue_id)
+    |> schedule_issue_retry(issue_id, 1, continuation_retry_metadata(running_entry))
+  end
+
+  defp apply_running_issue_exit(
+         state,
+         issue_id,
+         running_entry,
+         reason,
+         pending_approval,
+         session_id
+       ) do
+    Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+    state
+    |> schedule_issue_retry(
+      issue_id,
+      next_retry_attempt_from_running(running_entry),
+      failed_retry_metadata(running_entry, reason, pending_approval)
+    )
+  end
+
+  defp continuation_retry_metadata(running_entry) do
+    %{
+      identifier: running_entry.identifier,
+      delay_type: :continuation,
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    }
+  end
+
+  defp failed_retry_metadata(running_entry, reason, pending_approval) do
+    %{
+      identifier: running_entry.identifier,
+      error: running_issue_exit_error(reason, pending_approval),
+      pending_approval: pending_approval,
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    }
+  end
+
+  defp running_issue_exit_error(_reason, %{type: "approval_required"}), do: "approval required"
+
+  defp running_issue_exit_error(_reason, %{type: "turn_input_required"}),
+    do: "operator input required"
+
+  defp running_issue_exit_error(reason, _pending_approval), do: "agent exited: #{inspect(reason)}"
 
   defp next_poll_in_ms(nil, _now_ms), do: nil
 

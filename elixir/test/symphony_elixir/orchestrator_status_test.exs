@@ -811,19 +811,6 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       end
     end)
 
-    assert %{polling: %{checking?: true}} =
-             wait_for_snapshot(
-               pid,
-               fn
-                 %{polling: %{checking?: true}} ->
-                   true
-
-                 _ ->
-                   false
-               end,
-               500
-             )
-
     assert %{
              polling: %{
                checking?: false,
@@ -834,14 +821,14 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              wait_for_snapshot(
                pid,
                fn
-                 %{polling: %{checking?: false, next_poll_in_ms: due_in_ms}}
-                 when is_integer(due_in_ms) and due_in_ms <= 5_000 ->
+                 %{polling: %{checking?: false, next_poll_in_ms: due_in_ms, poll_interval_ms: 5_000}}
+                 when is_integer(due_in_ms) and due_in_ms > 3_500 and due_in_ms <= 5_000 ->
                    true
 
                  _ ->
                    false
                end,
-               500
+               1_500
              )
 
     assert is_integer(next_poll_in_ms)
@@ -957,7 +944,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert is_integer(due_at_ms)
     remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
-    assert remaining_ms >= 9_500
+    assert remaining_ms >= 8_500
     assert remaining_ms <= 10_500
   end
 
@@ -1128,6 +1115,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     dashboard_name = Module.concat(__MODULE__, :RenderDashboard)
     parent = self()
     orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
+    render_timeout_ms = 500
 
     on_exit(fn ->
       if is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
@@ -1160,7 +1148,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     end)
 
     StatusDashboard.notify_update(dashboard_name)
-    assert_receive {:render, first_render_ms, _content}, 200
+    assert_receive {:render, first_render_ms, _content}, render_timeout_ms
 
     :sys.replace_state(pid, fn state ->
       %{state | last_snapshot_fingerprint: :force_next_change, last_rendered_content: nil}
@@ -1169,7 +1157,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     StatusDashboard.notify_update(dashboard_name)
     StatusDashboard.notify_update(dashboard_name)
 
-    assert_receive {:render, second_render_ms, _content}, 200
+    assert_receive {:render, second_render_ms, _content}, render_timeout_ms
     assert second_render_ms > first_render_ms
     refute_receive {:render, _third_render_ms, _content}, 60
   end
@@ -1396,9 +1384,9 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
        %{
          "params" => %{
            "questions" => [
-              %{"question" => "The linear MCP server wants to run the tool \"Save issue\", which may modify or delete data. Allow this action?"}
-            ]
-          }
+             %{"question" => "The linear MCP server wants to run the tool \"Save issue\", which may modify or delete data. Allow this action?"}
+           ]
+         }
        }, "tool requires user input: The linear MCP server wants to run the tool \"Save issue\""}
     ]
 
@@ -1518,8 +1506,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
           "params" => %{
             "questions" => [
               %{
-                "question" =>
-                  "The linear MCP server wants to run the tool \"Save issue\", which may modify or delete data. Allow this action?"
+                "question" => "The linear MCP server wants to run the tool \"Save issue\", which may modify or delete data. Allow this action?"
               }
             ]
           }

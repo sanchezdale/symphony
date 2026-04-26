@@ -1,9 +1,44 @@
 defmodule SymphonyElixir.ManagerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias SymphonyElixir.Manager
   alias SymphonyElixir.Manager.RepoState
   alias SymphonyElixir.ManagerConfig
+
+  defmodule TextApiPlug do
+    import Plug.Conn
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      agent = Keyword.fetch!(opts, :agent)
+      %{issues: issues, state: state_response} = Agent.get(agent, & &1)
+
+      case {conn.method, conn.path_info} do
+        {"GET", ["api", "v1", "state"]} ->
+          respond(conn, state_response)
+
+        {"GET", ["api", "v1", issue_identifier]} ->
+          response =
+            Map.get(
+              issues,
+              issue_identifier,
+              {404, "application/json", ~s({"error":{"code":"issue_not_found"}})}
+            )
+
+          respond(conn, response)
+
+        _ ->
+          send_resp(conn, 404, "not found")
+      end
+    end
+
+    defp respond(conn, {status, content_type, body}) do
+      conn
+      |> put_resp_content_type(content_type)
+      |> send_resp(status, body)
+    end
+  end
 
   test "starts enabled repos, skips disabled repos, and persists assigned ports" do
     with_manager_fixture!(fn fixture ->
@@ -722,6 +757,546 @@ defmodule SymphonyElixir.ManagerTest do
     end)
   end
 
+  test "supports named managers, default wrappers, and unavailable control calls" do
+    with_manager_fixture!(fn fixture ->
+      named_manager = Module.concat(__MODULE__, NamedManager)
+
+      {:ok, named_pid} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: named_manager,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end,
+          runtime_start: fn repo, _config, _env -> {:ok, {:runtime, repo.id}} end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms -> {:ok, %{"running" => [], "retrying" => []}} end
+        )
+
+      assert Process.whereis(named_manager) == named_pid
+      assert :ok = GenServer.stop(named_pid)
+
+      {:ok, default_manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end,
+          runtime_start: fn repo, _config, _env -> {:ok, {:runtime, repo.id}} end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms -> {:ok, %{"running" => [], "retrying" => []}} end
+        )
+
+      assert %{repos: repos} = Manager.tick()
+      assert Enum.any?(repos, &(&1.id == "repo-a" and &1.running))
+      assert %{repos: reloaded_repos} = Manager.reload_config()
+      assert Enum.any?(reloaded_repos, &(&1.id == "repo-a" and &1.running))
+      assert %{repos: snapshot_repos} = Manager.snapshot()
+      assert Enum.any?(snapshot_repos, &(&1.id == "repo-a" and &1.running))
+      assert :ok = Manager.restart()
+      refute Process.alive?(default_manager)
+
+      unavailable =
+        spawn(fn ->
+          receive do
+          after
+            10 -> :ok
+          end
+        end)
+
+      wait_until!(fn -> not Process.alive?(unavailable) end)
+
+      assert {:error, :unavailable} = Manager.repo_state(unavailable, "repo-a")
+      assert {:error, :unavailable} = Manager.repo_issue(unavailable, "repo-a", "INT-124")
+      assert {:error, :unavailable} = Manager.restart_repo(unavailable, "repo-a")
+      assert {:error, :unavailable} = Manager.restart(unavailable)
+    end)
+  end
+
+  test "handles scheduled ticks, ignored port output, unmatched exits, and unexpected messages" do
+    with_manager_fixture!(fn fixture ->
+      parent = self()
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: true,
+          time_fn: fn -> 0 end,
+          runtime_start: fn _repo, _config, _env ->
+            runtime = Port.open({:spawn, "cat"}, [:binary])
+            send(parent, {:runtime_started, runtime})
+            {:ok, runtime}
+          end,
+          runtime_stop: fn runtime, _timeout_ms ->
+            safe_port_close(runtime)
+            :ok
+          end,
+          fetch_state: fn _port, _timeout_ms -> {:ok, %{"running" => [], "retrying" => []}} end
+        )
+
+      assert_receive {:runtime_started, runtime}
+      initial_tick_ref = :sys.get_state(manager).tick_ref
+      assert is_reference(initial_tick_ref)
+
+      send(manager, :tick)
+
+      wait_until!(fn ->
+        new_tick_ref = :sys.get_state(manager).tick_ref
+        is_reference(new_tick_ref) and new_tick_ref != initial_tick_ref
+      end)
+
+      send(manager, {runtime, {:data, "ignored"}})
+      send(manager, {:runtime_exit, :unknown_runtime, 1})
+      send(manager, :unexpected)
+      send(manager, {runtime, {:exit_status, 7}})
+
+      wait_until!(fn ->
+        snapshot = Manager.snapshot(manager)
+        Enum.any?(snapshot.repos, &(&1.id == "repo-a" and &1.health == :backoff and &1.last_exit_status == 7))
+      end)
+    end)
+  end
+
+  test "retains the last good config when reloads or config stat checks fail" do
+    with_manager_fixture!(fn fixture ->
+      parent = self()
+      {:ok, clock} = Agent.start_link(fn -> 0 end)
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> Agent.get(clock, & &1) end,
+          runtime_start: fn repo, _config, _env ->
+            handle = {:runtime, repo.id, System.unique_integer([:positive])}
+            send(parent, {:runtime_started, handle})
+            {:ok, handle}
+          end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms -> {:ok, %{"running" => [], "retrying" => []}} end
+        )
+
+      assert_receive {:runtime_started, _handle}
+
+      File.write!(fixture.config_path, "{")
+      Agent.update(clock, &(&1 + 5_000))
+      malformed_snapshot = Manager.tick(manager)
+
+      assert Enum.any?(malformed_snapshot.repos, &(&1.id == "repo-a" and &1.running))
+
+      File.rm!(fixture.config_path)
+      Agent.update(clock, &(&1 + 5_000))
+      missing_snapshot = Manager.tick(manager)
+
+      assert Enum.any?(missing_snapshot.repos, &(&1.id == "repo-a" and &1.running))
+    end)
+  end
+
+  test "treats non-map fetched state payloads as health failures" do
+    with_manager_fixture!(fn fixture ->
+      parent = self()
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end,
+          runtime_start: fn repo, _config, _env ->
+            handle = {:runtime, repo.id, System.unique_integer([:positive])}
+            send(parent, {:runtime_started, handle})
+            {:ok, handle}
+          end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms -> {:ok, []} end
+        )
+
+      assert_receive {:runtime_started, _handle}
+      snapshot = Manager.tick(manager)
+
+      assert Enum.any?(
+               snapshot.repos,
+               &(&1.id == "repo-a" and &1.health == :failing and &1.failure_count == 1 and
+                   &1.last_error == "state endpoint returned a non-object payload")
+             )
+    end)
+  end
+
+  test "blocks repos when required runtime inputs are missing" do
+    with_manager_fixture!(fn fixture ->
+      missing_repo_path = Path.join(fixture.root, "missing-repo")
+      missing_workflow_path = Path.join([fixture.root, "workflows", "repo-a", "MISSING.md"])
+      missing_symphony_bin = Path.join([fixture.root, "symphony", "elixir", "bin", "missing-symphony"])
+
+      assertions = [
+        {put_in(fixture.config, ["repos", Access.at(0), "repo_path"], missing_repo_path), "repo_path does not exist: #{missing_repo_path}"},
+        {put_in(fixture.config, ["repos", Access.at(0), "workflow_path"], missing_workflow_path), "workflow_path does not exist: #{missing_workflow_path}"},
+        {Map.put(fixture.config, "symphony_bin", missing_symphony_bin), "symphony_bin does not exist: #{missing_symphony_bin}"}
+      ]
+
+      Enum.each(assertions, fn {config, expected_reason} ->
+        write_config!(fixture.config_path, config)
+
+        {:ok, manager} =
+          Manager.start_link(
+            config_path: fixture.config_path,
+            name: nil,
+            schedule_ticks: false,
+            time_fn: fn -> 0 end,
+            runtime_start: fn _repo, _config, _env ->
+              flunk("runtime should not start when prerequisites are missing")
+            end,
+            runtime_stop: fn _handle, _timeout_ms -> :ok end,
+            fetch_state: fn _port, _timeout_ms -> {:ok, %{"running" => [], "retrying" => []}} end
+          )
+
+        snapshot = Manager.snapshot(manager)
+
+        assert Enum.any?(
+                 snapshot.repos,
+                 &(&1.id == "repo-a" and &1.health == :blocked and &1.blocked_reason == expected_reason)
+               )
+
+        assert :ok = GenServer.stop(manager)
+      end)
+    end)
+  end
+
+  test "repo state and issue lookups distinguish disabled and unavailable repos" do
+    with_manager_fixture!(fn fixture ->
+      parent = self()
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end,
+          runtime_start: fn repo, _config, _env ->
+            handle = {:runtime, repo.id}
+            send(parent, {:runtime_started, handle})
+            {:ok, handle}
+          end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms -> {:ok, %{"running" => [], "retrying" => []}} end
+        )
+
+      assert_receive {:runtime_started, runtime}
+      assert {:error, :repo_disabled} = Manager.repo_state(manager, "repo-b")
+      assert {:error, :repo_disabled} = Manager.repo_issue(manager, "repo-b", "INT-124")
+
+      send(manager, {:runtime_exit, runtime, 1})
+
+      wait_until!(fn ->
+        Manager.repo_state(manager, "repo-a") == {:error, :repo_unavailable}
+      end)
+
+      :sys.replace_state(manager, fn state ->
+        %RepoState{} = repo_state = Map.fetch!(state.repos, "repo-a")
+        updated_repo_state = %RepoState{repo_state | repo: %{repo_state.repo | port: nil}, runtime: :fake_runtime}
+        %{state | repos: Map.put(state.repos, "repo-a", updated_repo_state)}
+      end)
+
+      assert {:error, :repo_unavailable} = Manager.repo_state(manager, "repo-a")
+    end)
+  end
+
+  test "default runtime and fetch integrations parse text payloads and stop cleanly" do
+    with_manager_fixture!(fn fixture ->
+      {:ok, responses} =
+        Agent.start_link(fn ->
+          %{
+            state: {200, "text/plain", ~s({"running":[],"retrying":[]})},
+            issues: %{"INT-124" => {200, "text/plain", ~s({"issue":"ok"})}}
+          }
+        end)
+
+      repo_port = start_text_api!(responses)
+
+      config =
+        fixture.config
+        |> put_in(["repos", Access.at(0), "port"], repo_port)
+        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "failure_threshold"], 10)
+
+      write_config!(fixture.config_path, config)
+
+      write_symphony_bin!(
+        config["symphony_bin"],
+        "#!/bin/sh\ntrap 'exit 0' TERM\nsleep 30\n"
+      )
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end
+        )
+
+      snapshot = Manager.tick(manager)
+
+      assert Enum.any?(
+               snapshot.repos,
+               &(&1.id == "repo-a" and &1.health == :ok and &1.running and &1.last_state_payload == %{"running" => [], "retrying" => []})
+             )
+
+      assert {:ok, 200, %{"issue" => "ok"}} = Manager.repo_issue(manager, "repo-a", "INT-124")
+
+      Agent.update(responses, fn state ->
+        %{state | state: {200, "application/json", ~s({"running":[],"retrying":[]})}}
+      end)
+
+      json_snapshot = Manager.tick(manager)
+
+      assert Enum.any?(
+               json_snapshot.repos,
+               &(&1.id == "repo-a" and &1.health == :ok and &1.last_state_payload == %{"running" => [], "retrying" => []})
+             )
+
+      assert :ok = GenServer.stop(manager)
+    end)
+  end
+
+  test "default runtime start failures and closed ports are tolerated" do
+    with_manager_fixture!(fn fixture ->
+      unavailable_port = reserve_port!()
+
+      failing_config =
+        fixture.config
+        |> put_in(["repos", Access.at(0), "port"], unavailable_port)
+        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "failure_threshold"], 10)
+
+      write_config!(fixture.config_path, failing_config)
+      write_symphony_bin!(failing_config["symphony_bin"], "#!/bin/sh\nexit 0\n", 0o644)
+
+      {:ok, failing_manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end
+        )
+
+      failing_snapshot = Manager.snapshot(failing_manager)
+
+      assert Enum.any?(
+               failing_snapshot.repos,
+               &(&1.id == "repo-a" and &1.health == :backoff and String.contains?(&1.last_error, "start failure"))
+             )
+
+      assert :ok = GenServer.stop(failing_manager)
+
+      {:ok, responses} =
+        Agent.start_link(fn ->
+          %{
+            state: {200, "text/plain", ~s({"running":[],"retrying":[]})},
+            issues: %{}
+          }
+        end)
+
+      running_port = start_text_api!(responses)
+
+      running_config =
+        fixture.config
+        |> put_in(["repos", Access.at(0), "port"], running_port)
+        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "failure_threshold"], 10)
+
+      write_config!(fixture.config_path, running_config)
+
+      write_symphony_bin!(
+        running_config["symphony_bin"],
+        "#!/bin/sh\ntrap 'exit 0' TERM\nsleep 30\n"
+      )
+
+      {:ok, running_manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end
+        )
+
+      closed_port = Port.open({:spawn, "cat"}, [:binary])
+      safe_port_close(closed_port)
+
+      :sys.replace_state(running_manager, fn state ->
+        %RepoState{} = repo_state = Map.fetch!(state.repos, "repo-a")
+        updated_repo_state = %RepoState{repo_state | runtime: closed_port}
+        %{state | repos: Map.put(state.repos, "repo-a", updated_repo_state)}
+      end)
+
+      assert :ok = GenServer.stop(running_manager)
+    end)
+  end
+
+  test "default fetch surfaces transport errors" do
+    with_manager_fixture!(fn fixture ->
+      unavailable_port = reserve_port!()
+
+      config =
+        fixture.config
+        |> put_in(["repos", Access.at(0), "port"], unavailable_port)
+        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "failure_threshold"], 10)
+
+      write_config!(fixture.config_path, config)
+
+      write_symphony_bin!(
+        config["symphony_bin"],
+        "#!/bin/sh\ntrap 'exit 0' TERM\nsleep 30\n"
+      )
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end
+        )
+
+      snapshot = Manager.tick(manager)
+
+      assert Enum.any?(
+               snapshot.repos,
+               &(&1.id == "repo-a" and &1.health == :failing and is_binary(&1.last_error))
+             )
+    end)
+  end
+
+  test "default fetch and issue proxy surface malformed text payloads" do
+    with_manager_fixture!(fn fixture ->
+      {:ok, responses} =
+        Agent.start_link(fn ->
+          %{
+            state: {200, "text/plain", ~s({"running":[],"retrying":[]})},
+            issues: %{}
+          }
+        end)
+
+      repo_port = start_text_api!(responses)
+
+      config =
+        fixture.config
+        |> put_in(["repos", Access.at(0), "port"], repo_port)
+        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "failure_threshold"], 10)
+
+      write_config!(fixture.config_path, config)
+
+      write_symphony_bin!(
+        config["symphony_bin"],
+        "#!/bin/sh\ntrap 'exit 0' TERM\nsleep 30\n"
+      )
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> 0 end
+        )
+
+      Agent.update(responses, fn _ ->
+        %{
+          state: {200, "text/plain", "[]"},
+          issues: %{
+            "LIST" => {200, "text/plain", "[]"},
+            "BAD" => {200, "text/plain", "{"}
+          }
+        }
+      end)
+
+      list_snapshot = Manager.tick(manager)
+
+      assert Enum.any?(
+               list_snapshot.repos,
+               &(&1.id == "repo-a" and &1.last_error == ":non_map_state_payload")
+             )
+
+      assert {:error, :repo_unavailable} = Manager.repo_issue(manager, "repo-a", "LIST")
+
+      Agent.update(responses, fn state ->
+        %{state | state: {200, "text/plain", "{"}}
+      end)
+
+      invalid_snapshot = Manager.tick(manager)
+
+      assert Enum.any?(
+               invalid_snapshot.repos,
+               &(&1.id == "repo-a" and String.contains?(&1.last_error, "Jason.DecodeError"))
+             )
+
+      assert {:error, :repo_unavailable} = Manager.repo_issue(manager, "repo-a", "BAD")
+
+      Agent.update(responses, fn state ->
+        %{state | state: {500, "text/plain", ~s({"error":"boom"})}}
+      end)
+
+      status_snapshot = Manager.tick(manager)
+
+      assert Enum.any?(
+               status_snapshot.repos,
+               &(&1.id == "repo-a" and &1.last_error == "{:unexpected_status, 500}")
+             )
+    end)
+  end
+
+  test "uses fallback tick intervals and skips runtime shutdown when config is nil" do
+    with_manager_fixture!(fn fixture ->
+      parent = self()
+
+      {:ok, manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: true,
+          time_fn: fn -> 0 end,
+          runtime_start: fn repo, _config, _env -> {:ok, {:runtime, repo.id}} end,
+          runtime_stop: fn handle, _timeout_ms ->
+            send(parent, {:runtime_stopped, handle})
+            :ok
+          end,
+          fetch_state: fn _port, _timeout_ms -> {:ok, %{"running" => [], "retrying" => []}} end
+        )
+
+      initial_tick_ref = :sys.get_state(manager).tick_ref
+
+      :sys.replace_state(manager, fn state ->
+        %{state | config: put_in(state.config, ["manager", "check_interval_seconds"], "bad")}
+      end)
+
+      send(manager, :tick)
+
+      wait_until!(fn ->
+        new_tick_ref = :sys.get_state(manager).tick_ref
+        is_reference(new_tick_ref) and new_tick_ref != initial_tick_ref
+      end)
+
+      :sys.replace_state(manager, fn state ->
+        %{state | config: nil}
+      end)
+
+      assert :ok = GenServer.stop(manager)
+      refute_receive {:runtime_stopped, _handle}
+    end)
+  end
+
+  test "test-only helpers expose defensive fallback branches" do
+    missing_path =
+      Path.join(
+        System.tmp_dir!(),
+        "manager-missing-mtime-#{System.unique_integer([:positive])}.json"
+      )
+
+    assert {:error, :invalid_repo_api_payload} =
+             Manager.__test_decode_repo_api_payload__(%Req.Response{body: nil})
+
+    assert 123 = Manager.__test_refreshed_config_mtime__(missing_path, 123)
+  end
+
   defp with_manager_fixture!(fun) do
     root =
       Path.join(
@@ -807,4 +1382,52 @@ defmodule SymphonyElixir.ManagerTest do
   defp write_config!(path, config) do
     File.write!(path, Jason.encode!(config, pretty: true) <> "\n")
   end
+
+  defp start_text_api!(agent) do
+    port = reserve_port!()
+
+    start_supervised!({Bandit, plug: {TextApiPlug, agent: agent}, scheme: :http, ip: {127, 0, 0, 1}, port: port})
+
+    port
+  end
+
+  defp reserve_port! do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}, reuseaddr: true])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
+  end
+
+  defp write_symphony_bin!(path, contents, mode \\ 0o755) do
+    File.write!(path, contents)
+    File.chmod!(path, mode)
+  end
+
+  defp wait_until!(predicate, timeout_ms \\ 5_000) do
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_until(predicate, deadline_ms)
+  end
+
+  defp do_wait_until(predicate, deadline_ms) do
+    if predicate.() do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) >= deadline_ms do
+        flunk("condition was not met before timeout")
+      else
+        Process.sleep(20)
+        do_wait_until(predicate, deadline_ms)
+      end
+    end
+  end
+
+  defp safe_port_close(runtime) when is_port(runtime) do
+    if Port.info(runtime) do
+      Port.close(runtime)
+    else
+      :ok
+    end
+  end
+
+  defp safe_port_close(_runtime), do: :ok
 end

@@ -261,6 +261,14 @@ The observability UI now runs on a minimal Phoenix stack:
 - Bandit as the HTTP server
 - Phoenix dependency static assets for the LiveView client bootstrap
 
+When the HTTP server is started in manager mode, the dashboard switches from a
+single-runtime view to a repo-scoped control surface:
+
+- repo picker to switch between managed repos without leaving `/`
+- repo-scoped session and retry data for the selected repo
+- `Restart Repo` and `Restart Manager` controls from the dashboard
+- manager health summaries for selected repos, including unavailable states
+
 Current API routes include:
 
 - `GET /api/v1/state`

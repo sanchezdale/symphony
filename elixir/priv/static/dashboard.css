@@ -71,6 +71,13 @@ button:hover {
   box-shadow: 0 12px 24px rgba(16, 163, 127, 0.22);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
 button.secondary {
   background: var(--card);
   color: var(--ink);
@@ -227,6 +234,10 @@ pre,
   color: var(--muted);
 }
 
+.status-badge-mode {
+  margin-top: 0.55rem;
+}
+
 [data-phx-main].phx-connected .status-badge-live {
   display: inline-flex;
 }
@@ -272,12 +283,38 @@ pre,
   padding: 1.15rem;
 }
 
+.notice-card {
+  border-radius: 22px;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(16, 163, 127, 0.18);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.notice-card-error {
+  border-color: #f6d3cf;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.notice-copy {
+  margin: 0;
+  font-weight: 600;
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
 }
 
 .section-title {
@@ -291,6 +328,76 @@ pre,
   margin: 0.35rem 0 0;
   color: var(--muted);
   font-size: 0.94rem;
+}
+
+.repo-picker {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 1rem;
+}
+
+.repo-pill {
+  display: grid;
+  gap: 0.55rem;
+  text-align: left;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.repo-pill:hover {
+  border-color: rgba(16, 163, 127, 0.28);
+}
+
+.repo-pill-selected {
+  border-color: rgba(16, 163, 127, 0.4);
+  background: linear-gradient(180deg, rgba(16, 163, 127, 0.08) 0%, rgba(255, 255, 255, 0.92) 100%);
+}
+
+.repo-pill-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.repo-pill-name {
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.repo-pill-meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.repo-summary-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 1rem;
+}
+
+.repo-summary-card {
+  min-height: 100%;
+}
+
+.summary-value {
+  margin: 0.42rem 0 0;
+  font-size: 1.15rem;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.summary-value-compact {
+  font-size: 1rem;
+  line-height: 1.35;
 }
 
 .table-wrap {
@@ -442,6 +549,11 @@ pre,
 
   .status-stack {
     justify-items: start;
+  }
+
+  .control-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .metric-grid {
