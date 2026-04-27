@@ -401,7 +401,7 @@ defmodule SymphonyElixir.Manager do
   end
 
   defp ensure_repo_running(state, %RepoState{runtime: nil} = repo_state) do
-    if state.time_fn.() >= repo_state.next_start_time_ms do
+    if repo_state.next_start_time_ms <= 0 or state.time_fn.() >= repo_state.next_start_time_ms do
       start_repo_runtime(state, repo_state)
     else
       %{repo_state | last_health: :backoff}

@@ -361,6 +361,25 @@ def path_exists_check(name: str, path: Path, kind: str, remediation: str) -> Che
     return CheckResult(name, passed, detail, None if passed else remediation)
 
 
+def latest_build_input_mtime(repo_root: Path) -> tuple[float | None, Path | None]:
+    candidates = [repo_root / "elixir" / "mix.exs"]
+    candidates.extend((repo_root / "elixir" / "lib").rglob("*.ex"))
+
+    latest_path: Path | None = None
+    latest_mtime: float | None = None
+
+    for candidate in candidates:
+        try:
+            stat = candidate.stat()
+        except OSError:
+            continue
+        if latest_mtime is None or stat.st_mtime > latest_mtime:
+            latest_mtime = stat.st_mtime
+            latest_path = candidate
+
+    return latest_mtime, latest_path
+
+
 def parse_env_file(path: Path) -> dict[str, str]:
     content = path.read_text(encoding="utf-8")
     env: dict[str, str] = {}
@@ -454,6 +473,27 @@ def validate_prerequisites(config: dict[str, Any], config_path: Path) -> list[Ch
             f"Build Symphony once with `cd {symphony_repo / 'elixir'} && mise trust && mise install && mise exec -- mix build`.",
         )
     )
+    if escript_path.is_file():
+        latest_input_mtime, latest_input_path = latest_build_input_mtime(symphony_repo)
+        try:
+            escript_mtime = escript_path.stat().st_mtime
+        except OSError:
+            escript_mtime = None
+
+        if latest_input_mtime is not None and latest_input_path is not None and escript_mtime is not None:
+            escript_current = escript_mtime >= latest_input_mtime
+            detail = (
+                f"{escript_path} is newer than Elixir sources"
+                if escript_current
+                else f"{escript_path} is older than {latest_input_path}"
+            )
+            remediation = None
+            if not escript_current:
+                remediation = (
+                    f"Rebuild Symphony with `cd {symphony_repo / 'elixir'} && mise trust && mise install && "
+                    "`mise exec -- mix build` before migrating."
+                )
+            checks.append(CheckResult("manager.symphony_escript_current", escript_current, detail, remediation))
 
     repos = config.get("repos")
     if not isinstance(repos, list):

@@ -84,6 +84,32 @@ defmodule SymphonyElixir.ManagerTest do
     end)
   end
 
+  test "starts repos immediately when the monotonic clock is negative" do
+    with_manager_fixture!(fn fixture ->
+      parent = self()
+
+      {:ok, _manager} =
+        Manager.start_link(
+          config_path: fixture.config_path,
+          name: nil,
+          schedule_ticks: false,
+          time_fn: fn -> -1 end,
+          runtime_start: fn repo, _config, _env ->
+            handle = {:runtime, repo.id, repo.port}
+            send(parent, {:runtime_started, handle, repo.id, repo.port})
+            {:ok, handle}
+          end,
+          runtime_stop: fn _handle, _timeout_ms -> :ok end,
+          fetch_state: fn _port, _timeout_ms ->
+            {:ok, %{"running" => [], "retrying" => []}}
+          end
+        )
+
+      assert_receive {:runtime_started, {:runtime, "repo-a", assigned_port}, "repo-a", assigned_port}
+      refute_receive {:runtime_started, _handle, "repo-b", _port}
+    end)
+  end
+
   test "snapshot omits manager log paths when manager config is unavailable" do
     with_manager_fixture!(fn fixture ->
       {:ok, manager} =
