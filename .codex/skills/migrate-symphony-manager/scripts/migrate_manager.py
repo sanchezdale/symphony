@@ -147,6 +147,7 @@ def build_launchd_plist(
     symphony_bin: Path,
     stdout_path: Path,
     stderr_path: Path,
+    manager_port: int | None = None,
     env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     environment = {"PYTHONUNBUFFERED": "1"}
@@ -154,16 +155,22 @@ def build_launchd_plist(
     if current_path:
         environment["PATH"] = current_path
 
+    program_arguments = [
+        str(symphony_bin),
+        GUARDRAIL_ACK,
+        "manager",
+        "--config",
+        str(config_path),
+    ]
+
+    if manager_port is not None:
+        program_arguments.extend(["--port", str(manager_port)])
+
+    program_arguments.append("run")
+
     return {
         "Label": label,
-        "ProgramArguments": [
-            str(symphony_bin),
-            GUARDRAIL_ACK,
-            "manager",
-            "--config",
-            str(config_path),
-            "run",
-        ],
+        "ProgramArguments": program_arguments,
         "WorkingDirectory": str(symphony_repo),
         "RunAtLoad": True,
         "KeepAlive": True,
@@ -345,6 +352,17 @@ def validate_config_shape(config: dict[str, Any]) -> list[CheckResult]:
                     f"Fix repo `{repo_id}` port in config.json before migrating.",
                 )
             )
+
+    manager_http_port = manager.get("http_port")
+    if manager_http_port is not None and (not isinstance(manager_http_port, int) or manager_http_port <= 0):
+        checks.append(
+            CheckResult(
+                "config.manager.http_port",
+                False,
+                "manager.http_port must be a positive integer when present",
+                "Fix manager.http_port in config.json before migrating.",
+            )
+        )
 
     return checks
 
@@ -619,6 +637,7 @@ def plan_migration(
         symphony_bin=Path(str(desired_config.get("symphony_bin", ""))).expanduser(),
         stdout_path=Path(str(manager.get("launchd_log_path", default_log_path("manager.log")))).expanduser(),
         stderr_path=Path(str(manager.get("launchd_error_log_path", default_log_path("manager.error.log")))).expanduser(),
+        manager_port=manager.get("http_port") if isinstance(manager.get("http_port"), int) and manager.get("http_port") > 0 else None,
         env=os.environ,
     )
 

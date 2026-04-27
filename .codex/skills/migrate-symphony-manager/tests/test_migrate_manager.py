@@ -105,6 +105,34 @@ class MigrateManagerTest(unittest.TestCase):
             )
             self.assertEqual("dev.symphony.manager", payload["Label"])
 
+    def test_build_launchd_plist_includes_manager_http_port_when_present(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            payload = self.module.build_launchd_plist(
+                label="dev.symphony.manager",
+                config_path=root / "config.json",
+                symphony_repo=root / "symphony",
+                symphony_bin=root / "symphony" / "elixir" / "bin" / "symphony",
+                stdout_path=root / "manager.log",
+                stderr_path=root / "manager.error.log",
+                manager_port=4000,
+                env={"PATH": "/usr/bin:/bin"},
+            )
+
+            self.assertEqual(
+                [
+                    str(root / "symphony" / "elixir" / "bin" / "symphony"),
+                    self.module.GUARDRAIL_ACK,
+                    "manager",
+                    "--config",
+                    str(root / "config.json"),
+                    "--port",
+                    "4000",
+                    "run",
+                ],
+                payload["ProgramArguments"],
+            )
+
     def test_plist_mode_detects_legacy_python_launch_agent(self):
         payload = {
             "ProgramArguments": [
@@ -171,6 +199,16 @@ class MigrateManagerTest(unittest.TestCase):
 
             self.assertFalse(plan.blockers)
             self.assertFalse(plan.changes)
+
+    def test_validate_config_shape_rejects_invalid_manager_http_port(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = self.valid_config(root)
+            config["manager"]["http_port"] = "4000"
+
+            checks = self.module.validate_config_shape(config)
+
+            self.assertTrue(any(check.name == "config.manager.http_port" and not check.passed for check in checks))
 
 
 if __name__ == "__main__":
