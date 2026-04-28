@@ -144,6 +144,73 @@ defmodule SymphonyElixir.ManagerDashboardLiveTest do
     assert restart_manager_html =~ "Manager restart queued."
   end
 
+  test "manager dashboard marks long repo strings for wrapping and clamps long session updates" do
+    long_repo_name = "repo-with-an-extremely-long-display-name-that-needs-to-wrap-cleanly-inside-the-picker-pill"
+    long_repo_id = "repo-host-production-primary-with-a-very-long-identifier-and-extra-segments"
+    long_repo_path = "/tmp/company/projects/symphony/instances/repo-host-production-primary-with-a-very-long-identifier-and-extra-segments"
+    long_logs_root = "/tmp/logs/symphony/manager-dashboard/repo-host-production-primary-with-a-very-long-identifier-and-extra-segments"
+    long_manager_log = "/tmp/logs/symphony/manager-dashboard/manager/symphony-manager-supervisor-with-a-very-long-log-file-name.log"
+    long_manager_error_log = "/tmp/logs/symphony/manager-dashboard/manager/symphony-manager-supervisor-with-a-very-long-error-log-file-name.log"
+
+    long_last_error =
+      "start failure: repo bootstrap could not complete because the generated workspace path remained locked by a stale worker process for too long"
+
+    long_last_message =
+      "Processed repository health update for the selected repo and recorded a detailed manager event message that should wrap instead of forcing the running sessions table to overflow horizontally."
+
+    {:ok, manager} =
+      start_supervised(
+        {StaticManager,
+         parent: self(),
+         snapshot:
+           manager_snapshot(
+             [
+               repo_snapshot(long_repo_id,
+                 name: long_repo_name,
+                 repo_path: long_repo_path,
+                 logs_root: long_logs_root,
+                 last_error: long_last_error
+               )
+             ],
+             manager_log_path: long_manager_log,
+             manager_error_log_path: long_manager_error_log
+           ),
+         repo_states: %{
+           long_repo_id => {:ok, 200, repo_payload("INT-141", "session-with-a-long-id", long_last_message, 1)}
+         }}
+      )
+
+    start_test_endpoint(manager: manager, snapshot_timeout_ms: 50)
+
+    {:ok, _view, html} = live(build_conn(), "/")
+    document = Floki.parse_document!(html)
+
+    assert html =~ long_repo_name
+    assert html =~ long_repo_id
+    assert html =~ long_repo_path
+    assert html =~ long_logs_root
+    assert html =~ long_manager_log
+    assert html =~ long_manager_error_log
+    assert html =~ long_last_error
+    assert html =~ long_last_message
+
+    assert Floki.attribute(document, ".repo-pill-name.text-wrap", "title") == [long_repo_name]
+
+    assert Floki.attribute(document, ".repo-pill-meta.text-wrap", "title") ==
+             ["#{long_repo_id} · port 43102"]
+
+    assert long_repo_path in Floki.attribute(document, ".repo-summary-card .metric-detail.text-wrap", "title")
+    assert long_logs_root in Floki.attribute(document, ".repo-summary-card .metric-detail.text-wrap", "title")
+
+    assert long_manager_error_log in Floki.attribute(document, ".repo-summary-card .metric-detail.text-wrap", "title")
+
+    assert long_last_error in Floki.attribute(document, ".repo-summary-card .summary-value.text-wrap", "title")
+
+    assert long_manager_log in Floki.attribute(document, ".repo-summary-card .summary-value.text-wrap", "title")
+
+    assert Floki.attribute(document, ".event-text.text-clamp", "title") == [long_last_message]
+  end
+
   defp start_test_endpoint(overrides) do
     endpoint_config =
       :symphony_elixir
@@ -155,12 +222,12 @@ defmodule SymphonyElixir.ManagerDashboardLiveTest do
     start_supervised!({SymphonyElixirWeb.Endpoint, []})
   end
 
-  defp manager_snapshot(repos) do
+  defp manager_snapshot(repos, opts \\ []) do
     %{
       config_path: "/tmp/manager.json",
       config_mtime: 1,
-      manager_log_path: "/tmp/manager.log",
-      manager_error_log_path: "/tmp/manager.error.log",
+      manager_log_path: Keyword.get(opts, :manager_log_path, "/tmp/manager.log"),
+      manager_error_log_path: Keyword.get(opts, :manager_error_log_path, "/tmp/manager.error.log"),
       repos: repos
     }
   end
@@ -168,12 +235,12 @@ defmodule SymphonyElixir.ManagerDashboardLiveTest do
   defp repo_snapshot(repo_id, opts) do
     %{
       id: repo_id,
-      name: String.upcase(repo_id),
+      name: Keyword.get(opts, :name, String.upcase(repo_id)),
       enabled: true,
-      repo_path: "/tmp/#{repo_id}",
-      workflow_path: "/tmp/#{repo_id}/WORKFLOW.md",
-      logs_root: "/tmp/logs/#{repo_id}",
-      local_env_path: "/tmp/#{repo_id}/local.env",
+      repo_path: Keyword.get(opts, :repo_path, "/tmp/#{repo_id}"),
+      workflow_path: Keyword.get(opts, :workflow_path, "/tmp/#{repo_id}/WORKFLOW.md"),
+      logs_root: Keyword.get(opts, :logs_root, "/tmp/logs/#{repo_id}"),
+      local_env_path: Keyword.get(opts, :local_env_path, "/tmp/#{repo_id}/local.env"),
       port: Keyword.get(opts, :port, if(repo_id == "repo-a", do: 43_101, else: 43_102)),
       running: Keyword.get(opts, :running, true),
       health: Keyword.get(opts, :health, :ok),
