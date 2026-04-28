@@ -340,6 +340,7 @@ pre,
 .repo-pill {
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
   text-align: left;
   padding: 0.95rem 1rem;
   border-radius: 20px;
@@ -363,9 +364,15 @@ pre,
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.8rem;
+  min-width: 0;
+}
+
+.repo-pill-header > * {
+  min-width: 0;
 }
 
 .repo-pill-name {
+  flex: 1 1 auto;
   font-size: 0.98rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -385,6 +392,7 @@ pre,
 
 .repo-summary-card {
   min-height: 100%;
+  min-width: 0;
 }
 
 .summary-value {
@@ -442,20 +450,31 @@ pre,
   min-width: 0;
 }
 
+.text-wrap {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.text-clamp {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .event-text {
   font-weight: 500;
   line-height: 1.45;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .event-meta {
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .state-badge {
@@ -512,6 +531,7 @@ pre,
   border: 1px solid var(--line);
   color: #353740;
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .empty-state {
