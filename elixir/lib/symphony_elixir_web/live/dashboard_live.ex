@@ -182,12 +182,15 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 phx-value-repo={repo.id}
               >
                 <div class="repo-pill-header">
-                  <span class="repo-pill-name"><%= repo.name %></span>
+                  <span class="repo-pill-name text-wrap" title={repo.name}><%= repo.name %></span>
                   <span class={repo_health_badge_class(repo.health)}>
                     <%= humanize_repo_health(repo.health) %>
                   </span>
                 </div>
-                <span class="repo-pill-meta mono">
+                <span
+                  class="repo-pill-meta mono text-wrap"
+                  title={"#{repo.id} · #{repo_port_label(repo.port)}"}
+                >
                   <%= repo.id %> · <%= repo_port_label(repo.port) %>
                 </span>
               </button>
@@ -197,25 +200,34 @@ defmodule SymphonyElixirWeb.DashboardLive do
               <div class="repo-summary-grid">
                 <article class="metric-card repo-summary-card">
                   <p class="metric-label">Selected repo</p>
-                  <p class="summary-value"><%= @selected_repo.name %></p>
-                  <p class="metric-detail mono"><%= @selected_repo.id %></p>
+                  <p class="summary-value text-wrap" title={@selected_repo.name}><%= @selected_repo.name %></p>
+                  <p class="metric-detail mono text-wrap" title={@selected_repo.id}><%= @selected_repo.id %></p>
                 </article>
 
                 <article class="metric-card repo-summary-card">
                   <p class="metric-label">Runtime state</p>
                   <p class="summary-value"><%= humanize_repo_health(@selected_repo.health) %></p>
-                  <p class="metric-detail"><%= repo_health_copy(@selected_repo) %></p>
+                  <p class="metric-detail text-wrap" title={repo_health_copy(@selected_repo)}>
+                    <%= repo_health_copy(@selected_repo) %>
+                  </p>
                 </article>
 
                 <article class="metric-card repo-summary-card">
                   <p class="metric-label">Endpoint</p>
-                  <p class="summary-value mono"><%= repo_endpoint(@selected_repo) %></p>
-                  <p class="metric-detail mono"><%= @selected_repo.repo_path %></p>
+                  <p class="summary-value mono text-wrap" title={repo_endpoint(@selected_repo)}>
+                    <%= repo_endpoint(@selected_repo) %>
+                  </p>
+                  <p class="metric-detail mono text-wrap" title={@selected_repo.repo_path}>
+                    <%= @selected_repo.repo_path %>
+                  </p>
                 </article>
 
                 <article class="metric-card repo-summary-card">
                   <p class="metric-label">Last error</p>
-                  <p class="summary-value summary-value-compact">
+                  <p
+                    class="summary-value summary-value-compact text-wrap"
+                    title={repo_last_error(@selected_repo)}
+                  >
                     <%= repo_last_error(@selected_repo) %>
                   </p>
                   <p class="metric-detail">
@@ -225,14 +237,31 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
                 <article class="metric-card repo-summary-card">
                   <p class="metric-label">Repo log file</p>
-                  <p class="summary-value summary-value-compact mono"><%= repo_log_file(@selected_repo) %></p>
-                  <p class="metric-detail mono"><%= @selected_repo.logs_root %></p>
+                  <p
+                    class="summary-value summary-value-compact mono text-wrap"
+                    title={repo_log_file(@selected_repo)}
+                  >
+                    <%= repo_log_file(@selected_repo) %>
+                  </p>
+                  <p class="metric-detail mono text-wrap" title={@selected_repo.logs_root}>
+                    <%= @selected_repo.logs_root %>
+                  </p>
                 </article>
 
                 <article class="metric-card repo-summary-card">
                   <p class="metric-label">Manager logs</p>
-                  <p class="summary-value summary-value-compact mono"><%= manager_log_path(@manager_snapshot) %></p>
-                  <p class="metric-detail mono"><%= manager_error_log_path(@manager_snapshot) %></p>
+                  <p
+                    class="summary-value summary-value-compact mono text-wrap"
+                    title={manager_log_path(@manager_snapshot)}
+                  >
+                    <%= manager_log_path(@manager_snapshot) %>
+                  </p>
+                  <p
+                    class="metric-detail mono text-wrap"
+                    title={manager_error_log_path(@manager_snapshot)}
+                  >
+                    <%= manager_error_log_path(@manager_snapshot) %>
+                  </p>
                 </article>
               </div>
             <% end %>
@@ -354,10 +383,10 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     <td>
                       <div class="detail-stack">
                         <span
-                          class="event-text"
+                          class="event-text text-clamp"
                           title={entry.last_message || to_string(entry.last_event || "n/a")}
                         ><%= entry.last_message || to_string(entry.last_event || "n/a") %></span>
-                        <span class="muted event-meta">
+                        <span class="muted event-meta text-wrap">
                           <%= entry.last_event || "n/a" %>
                           <%= if entry.last_event_at do %>
                             · <span class="mono numeric"><%= entry.last_event_at %></span>
