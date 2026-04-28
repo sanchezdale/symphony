@@ -456,8 +456,52 @@ defmodule SymphonyElixir.ManagerConfig do
   defp put_env_assignment("", _value, _env, line_number, path),
     do: invalid_env_line(line_number, path)
 
-  defp put_env_assignment(key, value, env, _line_number, _path),
-    do: {:cont, {:ok, Map.put(env, key, value)}}
+  defp put_env_assignment(key, value, env, line_number, path) do
+    case normalize_env_value(value) do
+      {:ok, normalized_value} ->
+        {:cont, {:ok, Map.put(env, key, normalized_value)}}
+
+      :error ->
+        invalid_env_line(line_number, path)
+    end
+  end
+
+  defp normalize_env_value("\"" <> rest) do
+    parse_quoted_env_value(rest, "\"")
+  end
+
+  defp normalize_env_value("'" <> rest) do
+    parse_quoted_env_value(rest, "'")
+  end
+
+  defp normalize_env_value(value), do: {:ok, value}
+
+  defp parse_quoted_env_value(rest, quote_char) do
+    case String.ends_with?(rest, quote_char) do
+      true ->
+        unquoted =
+          rest
+          |> String.slice(0, byte_size(rest) - byte_size(quote_char))
+          |> unescape_quoted_env_value(quote_char)
+
+        {:ok, unquoted}
+
+      false ->
+        :error
+    end
+  end
+
+  defp unescape_quoted_env_value(value, "\"") do
+    value
+    |> String.replace("\\\"", "\"")
+    |> String.replace("\\\\", "\\")
+  end
+
+  defp unescape_quoted_env_value(value, "'") do
+    value
+    |> String.replace("\\'", "'")
+    |> String.replace("\\\\", "\\")
+  end
 
   defp invalid_env_line(line_number, path) do
     {:halt, {:error, {:config_error, "Invalid env file line #{line_number} in #{path}: expected KEY=VALUE"}}}

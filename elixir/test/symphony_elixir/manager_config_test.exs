@@ -242,16 +242,21 @@ defmodule SymphonyElixir.ManagerConfigTest do
     assert {:error, {:config_error, "Each repo entry must be an object"}} = ManagerConfig.parse_repo("repo-a")
   end
 
-  test "load_env_file supports comments and export prefixes" do
+  test "load_env_file supports comments, export prefixes, and quoted values" do
     env_file = """
     # ignored
-    export LINEAR_API_KEY=token
-    SYMPHONY_PROJECT_SLUG=leftoff
+    export LINEAR_API_KEY="token"
+    SYMPHONY_PROJECT_SLUG='leftoff'
+    ESCAPED="say \\"hi\\""
     """
 
     with_temp_file!(env_file, fn path ->
       assert {:ok, env} = ManagerConfig.load_env_file(path)
-      assert env == %{"LINEAR_API_KEY" => "token", "SYMPHONY_PROJECT_SLUG" => "leftoff"}
+      assert env == %{
+               "LINEAR_API_KEY" => "token",
+               "SYMPHONY_PROJECT_SLUG" => "leftoff",
+               "ESCAPED" => "say \"hi\""
+             }
     end)
   end
 

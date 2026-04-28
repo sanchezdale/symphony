@@ -202,7 +202,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(command)],
+            args: [~c"-lc", String.to_charlist(guardrailed_command(workspace, command))],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -213,13 +213,24 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp start_port(workspace, command, worker_host) when is_binary(worker_host) do
-    remote_command = remote_launch_command(workspace, command)
+    remote_command = remote_launch_command(workspace, guardrailed_command(workspace, command))
     SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
   end
 
   defp remote_launch_command(workspace, command) when is_binary(workspace) and is_binary(command) do
     [
       "cd #{shell_escape(workspace)}",
+      command
+    ]
+    |> Enum.join(" && ")
+  end
+
+  defp guardrailed_command(workspace, command) when is_binary(workspace) and is_binary(command) do
+    guardrails_bin = Path.join(workspace, ".symphony/bin")
+
+    [
+      "export SYMPHONY_ORIGINAL_PATH=\"$PATH\"",
+      "export PATH=#{shell_escape(guardrails_bin)}:\"$PATH\"",
       "exec #{command}"
     ]
     |> Enum.join(" && ")

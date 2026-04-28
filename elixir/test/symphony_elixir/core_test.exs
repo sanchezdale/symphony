@@ -6,6 +6,7 @@ defmodule SymphonyElixir.CoreTest do
       tracker_api_token: nil,
       tracker_project_slug: nil,
       poll_interval_ms: nil,
+      poll_jitter_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
       codex_command: nil
@@ -13,6 +14,7 @@ defmodule SymphonyElixir.CoreTest do
 
     config = Config.settings!()
     assert config.polling.interval_ms == 30_000
+    assert config.polling.jitter_ms == 0
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
     assert config.tracker.assignee == nil
@@ -29,6 +31,18 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: 45_000)
     assert Config.settings!().polling.interval_ms == 45_000
+
+    write_workflow_file!(Workflow.workflow_file_path(), poll_jitter_ms: -1)
+
+    assert_raise ArgumentError, ~r/jitter_ms/, fn ->
+      Config.settings!().polling.jitter_ms
+    end
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "polling.jitter_ms"
+
+    write_workflow_file!(Workflow.workflow_file_path(), poll_jitter_ms: 5_000)
+    assert Config.settings!().polling.jitter_ms == 5_000
 
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
@@ -877,6 +891,11 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 3)
 
+    assert prompt =~ "Symphony operating guardrails:"
+    assert prompt =~ "current repository `"
+    assert prompt =~ "current Linear issue `S-1`"
+    assert prompt =~ "Never add reviewers"
+    assert prompt =~ "Only address automated review feedback from Codex or Copilot"
     assert prompt =~ "Ticket S-1 Refactor backend request path"
     assert prompt =~ "labels=backend"
     assert prompt =~ "attempt=3"
@@ -926,7 +945,11 @@ defmodule SymphonyElixir.CoreTest do
       ]
     }
 
-    assert PromptBuilder.build_prompt(issue) == "Ticket MT-701"
+    prompt = PromptBuilder.build_prompt(issue)
+
+    assert prompt =~ "current repository `"
+    assert prompt =~ "current Linear issue `MT-701`"
+    assert prompt =~ "Ticket MT-701"
   end
 
   test "prompt builder uses strict variable rendering" do
@@ -979,6 +1002,8 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
+    assert prompt =~ "Never add reviewers"
+    assert prompt =~ "Never reply to comments from human users on GitHub"
     assert prompt =~ "You are working on a Linear issue."
     assert prompt =~ "Identifier: MT-777"
     assert prompt =~ "Title: Make fallback prompt useful"
@@ -1003,6 +1028,7 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue)
 
+    assert prompt =~ "current Linear issue `MT-778`"
     assert prompt =~ "Identifier: MT-778"
     assert prompt =~ "Title: Handle empty body"
     assert prompt =~ "No description provided."
@@ -1055,6 +1081,8 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
+    assert prompt =~ "Never add reviewers"
+    assert prompt =~ "Only address automated review feedback from Codex or Copilot"
     assert prompt =~ "You are working on a Linear issue for the current repository."
     assert prompt =~ "Issue context:"
     assert prompt =~ "Identifier: MT-616"
@@ -1083,7 +1111,130 @@ defmodule SymphonyElixir.CoreTest do
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 2)
 
-    assert prompt == "Retry #2"
+    assert prompt =~ "current Linear issue `MT-201`"
+    assert prompt =~ "Retry #2"
+  end
+
+  test "prompt builder includes canonical branch and existing pr guidance when runtime context is present" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
+
+    issue = %Issue{
+      identifier: "MT-202",
+      title: "Reuse existing branch and PR",
+      description: "Do not republish duplicate PRs",
+      state: "In Progress",
+      branch_name: "daniel/mt-202",
+      url: "https://example.org/issues/MT-202",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(issue,
+        runtime_context: %{
+          canonical_branch: "daniel/mt-202",
+          pr_number: "42",
+          pr_url: "https://github.com/example/repo/pull/42"
+        }
+      )
+
+    assert prompt =~ "canonical issue branch `daniel/mt-202`"
+    assert prompt =~ "existing pull request already exists for this issue: `#42`"
+    assert prompt =~ "https://github.com/example/repo/pull/42"
+    assert prompt =~ "request Codex review with the exact comment `@codex review`"
+  end
+
+  test "workspace codex guardrails install wrappers and prevent duplicate PR publishing" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-guardrails-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace = Path.join(test_root, "MT-203")
+      real_bin = Path.join(test_root, "real-bin")
+      gh_log = Path.join(test_root, "gh.log")
+      git_log = Path.join(test_root, "git.log")
+
+      File.mkdir_p!(workspace)
+      File.mkdir_p!(real_bin)
+
+      File.write!(Path.join(real_bin, "git"), """
+      #!/bin/sh
+      printf '%s\\n' "$*" >> "$GIT_LOG"
+      if [ "$1" = "branch" ] && [ "$2" = "--show-current" ]; then
+        printf 'daniel/mt-203\\n'
+      fi
+      exit 0
+      """)
+
+      File.write!(Path.join(real_bin, "gh"), """
+      #!/bin/sh
+      printf '%s\\n' "$*" >> "$GH_LOG"
+      if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+        case "$*" in
+          *".[0].number"*) printf '42\\n' ;;
+          *".[0].url"*) printf 'https://github.com/example/repo/pull/42\\n' ;;
+        esac
+        exit 0
+      fi
+
+      if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
+        printf 'https://github.com/example/repo/pull/99\\n'
+        exit 0
+      fi
+
+      exit 0
+      """)
+
+      File.chmod!(Path.join(real_bin, "git"), 0o755)
+      File.chmod!(Path.join(real_bin, "gh"), 0o755)
+
+      issue = %Issue{
+        identifier: "MT-203",
+        title: "Keep one issue PR",
+        description: "Prevent duplicate publication",
+        state: "In Progress",
+        branch_name: "daniel/mt-203"
+      }
+
+      assert {:ok, runtime_context} = Workspace.ensure_codex_guardrails(workspace, issue)
+      assert runtime_context.canonical_branch == "daniel/mt-203"
+      assert File.exists?(Path.join(workspace, ".symphony/guardrails.sh"))
+      assert File.exists?(Path.join(workspace, ".symphony/bin/gh"))
+      assert File.exists?(Path.join(workspace, ".symphony/bin/git"))
+
+      env = [
+        {"SYMPHONY_ORIGINAL_PATH", real_bin},
+        {"GH_LOG", gh_log},
+        {"GIT_LOG", git_log}
+      ]
+
+      {create_output, 0} =
+        System.cmd(Path.join(workspace, ".symphony/bin/gh"), ["pr", "create"], env: env, stderr_to_stdout: true)
+
+      assert String.trim(create_output) == "https://github.com/example/repo/pull/42"
+      refute File.read!(gh_log) =~ "pr create"
+      assert File.read!(gh_log) =~ "pr comment 42 --body @codex review"
+      assert File.read!(Path.join(workspace, ".symphony/issue-context.tsv")) =~ "PR_NUMBER\t42"
+
+      {comment_output, 1} =
+        System.cmd(Path.join(workspace, ".symphony/bin/gh"), ["pr", "comment", "42", "--body", "hi"], env: env, stderr_to_stdout: true)
+
+      assert comment_output =~ "except for requesting Codex review"
+
+      {codex_review_output, 0} =
+        System.cmd(Path.join(workspace, ".symphony/bin/gh"), ["pr", "comment", "42", "--body", "@codex review"], env: env, stderr_to_stdout: true)
+
+      assert codex_review_output == ""
+
+      {branch_output, 1} =
+        System.cmd(Path.join(workspace, ".symphony/bin/git"), ["checkout", "-b", "wrong-branch"], env: env, stderr_to_stdout: true)
+
+      assert branch_output =~ "must continue on branch daniel/mt-203"
+    after
+      File.rm_rf(test_root)
+    end
   end
 
   test "agent runner keeps workspace after successful codex run" do
@@ -1450,9 +1601,12 @@ defmodule SymphonyElixir.CoreTest do
 
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 0) =~ "Never add reviewers"
       refute Enum.at(turn_texts, 1) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) =~ "Continuation guidance:"
       assert Enum.at(turn_texts, 1) =~ "continuation turn #2 of 3"
+      assert Enum.at(turn_texts, 1) =~ "Do not add reviewers"
+      assert Enum.at(turn_texts, 1) =~ "Do not reply to GitHub comments from human users"
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")
       File.rm_rf(test_root)
@@ -1587,6 +1741,8 @@ defmodule SymphonyElixir.CoreTest do
       count=0
       printf 'ARGV:%s\\n' \"$*\" >> \"$trace_file\"
       printf 'CWD:%s\\n' \"$PWD\" >> \"$trace_file\"
+      printf 'PATH:%s\\n' \"$PATH\" >> \"$trace_file\"
+      printf 'ORIG_PATH:%s\\n' \"${SYMPHONY_ORIGINAL_PATH:-}\" >> \"$trace_file\"
 
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1640,6 +1796,10 @@ defmodule SymphonyElixir.CoreTest do
       refute Enum.any?(lines, &String.contains?(&1, "--yolo"))
       assert cwd_line = Enum.find(lines, fn line -> String.starts_with?(line, "CWD:") end)
       assert String.ends_with?(cwd_line, Path.basename(workspace))
+      assert path_line = Enum.find(lines, fn line -> String.starts_with?(line, "PATH:") end)
+      assert path_line =~ "/MT-77/.symphony/bin:"
+      assert orig_path_line = Enum.find(lines, fn line -> String.starts_with?(line, "ORIG_PATH:") end)
+      assert orig_path_line != "ORIG_PATH:"
 
       assert Enum.any?(lines, fn line ->
                if String.starts_with?(line, "JSON:") do

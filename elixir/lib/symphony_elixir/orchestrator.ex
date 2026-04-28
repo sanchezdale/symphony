@@ -28,6 +28,7 @@ defmodule SymphonyElixir.Orchestrator do
 
     defstruct [
       :poll_interval_ms,
+      :poll_jitter_ms,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
       :poll_check_in_progress,
@@ -56,6 +57,7 @@ defmodule SymphonyElixir.Orchestrator do
 
     state = %State{
       poll_interval_ms: config.polling.interval_ms,
+      poll_jitter_ms: config.polling.jitter_ms,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
@@ -110,7 +112,7 @@ defmodule SymphonyElixir.Orchestrator do
   def handle_info(:run_poll_cycle, state) do
     state = refresh_runtime_config(state)
     state = maybe_dispatch(state)
-    state = schedule_tick(state, state.poll_interval_ms)
+    state = schedule_next_poll_tick(state)
     state = %{state | poll_check_in_progress: false}
 
     notify_dashboard()
@@ -299,6 +301,13 @@ defmodule SymphonyElixir.Orchestrator do
           String.t() | nil | :no_worker_capacity
   def select_worker_host_for_test(%State{} = state, preferred_worker_host) do
     select_worker_host(state, preferred_worker_host)
+  end
+
+  @doc false
+  @spec next_poll_delay_ms_for_test(pos_integer(), non_neg_integer()) :: pos_integer()
+  def next_poll_delay_ms_for_test(interval_ms, jitter_ms)
+      when is_integer(interval_ms) and interval_ms > 0 and is_integer(jitter_ms) and jitter_ms >= 0 do
+    next_poll_delay_ms(interval_ms, jitter_ms)
   end
 
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
@@ -1407,6 +1416,19 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
+  defp schedule_next_poll_tick(%State{} = state) do
+    schedule_tick(state, next_poll_delay_ms(state.poll_interval_ms, state.poll_jitter_ms))
+  end
+
+  defp next_poll_delay_ms(interval_ms, 0) when is_integer(interval_ms) and interval_ms > 0 do
+    interval_ms
+  end
+
+  defp next_poll_delay_ms(interval_ms, jitter_ms)
+       when is_integer(interval_ms) and interval_ms > 0 and is_integer(jitter_ms) and jitter_ms > 0 do
+    interval_ms + :rand.uniform(jitter_ms + 1) - 1
+  end
+
   defp schedule_poll_cycle_start do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
@@ -1522,6 +1544,7 @@ defmodule SymphonyElixir.Orchestrator do
     %{
       state
       | poll_interval_ms: config.polling.interval_ms,
+        poll_jitter_ms: config.polling.jitter_ms,
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
   end

@@ -884,6 +884,18 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert next_poll_in_ms <= 50
   end
 
+  test "orchestrator applies positive jitter to the next poll delay" do
+    assert Orchestrator.next_poll_delay_ms_for_test(60_000, 0) == 60_000
+
+    delays =
+      for _ <- 1..64 do
+        Orchestrator.next_poll_delay_ms_for_test(60_000, 5_000)
+      end
+
+    assert Enum.all?(delays, &(&1 >= 60_000 and &1 <= 65_000))
+    assert Enum.any?(delays, &(&1 > 60_000))
+  end
+
   test "orchestrator restarts stalled workers with retry backoff" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,

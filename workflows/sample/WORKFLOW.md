@@ -16,6 +16,7 @@ tracker:
     - Done
 polling:
   interval_ms: 10000
+  jitter_ms: 5000
 workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
 hooks:

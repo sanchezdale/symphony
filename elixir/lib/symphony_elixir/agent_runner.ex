@@ -34,8 +34,9 @@ defmodule SymphonyElixir.AgentRunner do
         send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
 
         try do
-          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
-            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host),
+               {:ok, runtime_context} <- Workspace.ensure_codex_guardrails(workspace, issue, worker_host) do
+            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host, runtime_context)
           end
         after
           Workspace.run_after_run_hook(workspace, issue, worker_host)
@@ -76,7 +77,7 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
-  defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
+  defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host, runtime_context) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     approval_policy_override = Keyword.get(opts, :approval_policy_override)
@@ -89,15 +90,15 @@ defmodule SymphonyElixir.AgentRunner do
              approval_policy_override: approval_policy_override
            ) do
       try do
-        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns)
+        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns, runtime_context)
       after
         AppServer.stop_session(session)
       end
     end
   end
 
-  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns) do
-    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns, runtime_context) do
+    prompt = build_turn_prompt(issue, opts, turn_number, max_turns, runtime_context)
 
     with {:ok, turn_session} <-
            AppServer.run_turn(
@@ -120,7 +121,8 @@ defmodule SymphonyElixir.AgentRunner do
             opts,
             issue_state_fetcher,
             turn_number + 1,
-            max_turns
+            max_turns,
+            runtime_context
           )
 
         {:continue, refreshed_issue} ->
@@ -137,9 +139,31 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp build_turn_prompt(issue, opts, 1, _max_turns), do: PromptBuilder.build_prompt(issue, opts)
+  defp build_turn_prompt(issue, opts, 1, _max_turns, runtime_context),
+    do: PromptBuilder.build_prompt(issue, Keyword.put(opts, :runtime_context, runtime_context))
 
-  defp build_turn_prompt(_issue, _opts, turn_number, max_turns) do
+  defp build_turn_prompt(_issue, _opts, turn_number, max_turns, runtime_context) do
+    branch_guidance =
+      case Map.get(runtime_context, :canonical_branch) do
+        branch when is_binary(branch) and branch != "" ->
+          "- Continue on the canonical issue branch `#{branch}` and do not create a new branch for this issue."
+
+        _ ->
+          nil
+      end
+
+    pr_guidance =
+      case {Map.get(runtime_context, :pr_number), Map.get(runtime_context, :pr_url)} do
+        {number, url} when is_binary(number) and number != "" and is_binary(url) and url != "" ->
+          "- An existing pull request already exists for this issue: `##{number}` at #{url}. Update that PR instead of creating a new one."
+
+        {number, _url} when is_binary(number) and number != "" ->
+          "- An existing pull request already exists for this issue: `##{number}`. Update that PR instead of creating a new one."
+
+        _ ->
+          nil
+      end
+
     """
     Continuation guidance:
 
@@ -148,7 +172,15 @@ defmodule SymphonyElixir.AgentRunner do
     - Resume from the current workspace and workpad state instead of restarting from scratch.
     - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
+    - Continue to use only the current repository workspace and current Linear issue context; ignore any stray context from other repositories, agents, or tickets.
+    - Do not add reviewers, request review from people, or tag human reviewers on GitHub pull requests.
+    - Do not reply to GitHub comments from human users; only address relevant automated feedback from Codex or Copilot.
+    - If the PR is ready for review after your changes, request Codex review with the exact comment `@codex review`.
+    #{branch_guidance}
+    #{pr_guidance}
     """
+    |> String.replace("\n\n", "\n")
+    |> String.trim()
   end
 
   defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
