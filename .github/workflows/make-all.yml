@@ -34,10 +34,35 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-
 
-      - name: Install sample workflow config
+      - name: Install default workflow config
         run: |
           mkdir -p "$HOME/.config/symphony/workflows/elixir"
-          cp ../workflows/sample/WORKFLOW.md "$HOME/.config/symphony/workflows/elixir/WORKFLOW.md"
+          cat > "$HOME/.config/symphony/workflows/elixir/WORKFLOW.md" <<'EOF'
+          ---
+          tracker:
+            kind: linear
+            api_key: $LINEAR_API_KEY
+            project_slug: symphony
+            active_states:
+              - Todo
+              - In Progress
+            terminal_states:
+              - Closed
+              - Cancelled
+              - Canceled
+              - Duplicate
+              - Done
+          hooks:
+            after_create: |
+              git clone --depth 1 https://github.com/openai/symphony .
+              cd elixir && mise trust
+              cd elixir && mise exec -- mix deps.get
+            before_remove: |
+              cd elixir && mise exec -- mix workspace.before_remove
+          ---
+
+          You are an agent for this repository.
+          EOF
 
       - name: Verify make all
         run: make all
