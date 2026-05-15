@@ -1143,6 +1143,51 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "request Codex review with the exact comment `@codex review`"
   end
 
+  test "prompt builder includes linear branch and pr-number-only guidance" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
+
+    issue = %Issue{
+      identifier: "MT-204",
+      title: "Reuse branch name",
+      description: "Use issue metadata when no canonical branch exists",
+      state: "In Progress",
+      url: "https://example.org/issues/MT-204",
+      labels: []
+    }
+
+    prompt =
+      PromptBuilder.build_prompt(issue,
+        runtime_context: %{
+          linear_branch_name: "daniel/mt-204",
+          pr_number: "43"
+        }
+      )
+
+    assert prompt =~ "use Linear's branch name `daniel/mt-204`"
+    assert prompt =~ "existing pull request already exists for this issue: `#43`"
+    refute prompt =~ "github.com/example"
+  end
+
+  test "prompt builder ignores malformed runtime context guardrails" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
+
+    issue = %Issue{
+      identifier: "MT-205",
+      title: "Ignore malformed runtime context",
+      description: "Runtime context should be optional",
+      state: "Todo",
+      url: "https://example.org/issues/MT-205",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, runtime_context: "not-a-map")
+
+    assert prompt =~ "Ticket MT-205"
+    refute prompt =~ "canonical issue branch"
+    refute prompt =~ "existing pull request already exists"
+    refute prompt =~ "request Codex review"
+  end
+
   test "workspace codex guardrails install wrappers and prevent duplicate PR publishing" do
     test_root =
       Path.join(

@@ -124,7 +124,6 @@ defmodule SymphonyElixir.ManagerApiTest do
       config =
         fixture.config
         |> put_in(["repos", Access.at(0), "port"], repo_port)
-        |> put_in(["manager", "port_range"], %{"start" => 1, "end" => 65_535})
 
       write_config!(fixture.config_path, config)
 
@@ -214,7 +213,6 @@ defmodule SymphonyElixir.ManagerApiTest do
       config =
         fixture.config
         |> put_in(["repos", Access.at(0), "port"], reserve_port!())
-        |> put_in(["manager", "port_range"], %{"start" => 1, "end" => 65_535})
 
       write_config!(fixture.config_path, config)
 

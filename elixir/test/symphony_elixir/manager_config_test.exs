@@ -275,6 +275,11 @@ defmodule SymphonyElixir.ManagerConfigTest do
       assert {:error, {:config_error, message}} = ManagerConfig.load_env_file(path)
       assert message =~ "expected KEY=VALUE"
     end)
+
+    with_temp_file!("BROKEN_QUOTE=\"oops\n", fn path ->
+      assert {:error, {:config_error, message}} = ManagerConfig.load_env_file(path)
+      assert message =~ "expected KEY=VALUE"
+    end)
   end
 
   defp valid_config do
