@@ -4,6 +4,8 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'deps'
@@ -11,6 +13,8 @@ updates:
     directory: '/elixir/test/support/live_e2e_docker'
     schedule:
       interval: 'weekly'
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'deps'
@@ -18,6 +22,8 @@ updates:
     directory: '/elixir/deps/phoenix'
     schedule:
       interval: 'weekly'
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'deps'
@@ -25,6 +31,8 @@ updates:
     directory: '/elixir/deps/phoenix_html'
     schedule:
       interval: 'weekly'
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'deps'
@@ -32,6 +40,8 @@ updates:
     directory: '/elixir/deps/phoenix_live_view'
     schedule:
       interval: 'weekly'
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'deps'

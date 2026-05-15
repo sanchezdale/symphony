@@ -25,7 +25,15 @@ jobs:
           persist-credentials: false
       - name: Run OSV-Scanner
         run: |
+          set +e
           docker run --rm             -v "${{ github.workspace }}:/workspace"             ghcr.io/google/osv-scanner:v2.3.8             --recursive             /workspace
+          status=$?
+          set -e
+          if [ "$status" -eq 128 ]; then
+            echo "OSV-Scanner found no supported package sources to scan."
+            exit 0
+          fi
+          exit "$status"
 
   secret-scan:
     name: Gitleaks secret scan
@@ -50,7 +58,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@v3.95.3
+        uses: trufflesecurity/trufflehog@37b77001d0174ebec2fcca2bd83ff83a6d45a3ab
         with:
           path: ./
           extra_args: --results=verified
