@@ -252,6 +252,7 @@ defmodule SymphonyElixir.ManagerConfigTest do
 
     with_temp_file!(env_file, fn path ->
       assert {:ok, env} = ManagerConfig.load_env_file(path)
+
       assert env == %{
                "LINEAR_API_KEY" => "token",
                "SYMPHONY_PROJECT_SLUG" => "leftoff",
