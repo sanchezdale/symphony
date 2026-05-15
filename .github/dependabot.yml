@@ -1,37 +1,37 @@
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: "/"
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "deps"
+      prefix: 'deps'
   - package-ecosystem: docker
-    directory: "/elixir/test/support/live_e2e_docker"
+    directory: '/elixir/test/support/live_e2e_docker'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "deps"
+      prefix: 'deps'
   - package-ecosystem: npm
-    directory: "/elixir/deps/phoenix"
+    directory: '/elixir/deps/phoenix'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "deps"
+      prefix: 'deps'
   - package-ecosystem: npm
-    directory: "/elixir/deps/phoenix_html"
+    directory: '/elixir/deps/phoenix_html'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "deps"
+      prefix: 'deps'
   - package-ecosystem: npm
-    directory: "/elixir/deps/phoenix_live_view"
+    directory: '/elixir/deps/phoenix_live_view'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "deps"
+      prefix: 'deps'
