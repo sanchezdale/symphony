@@ -82,6 +82,16 @@ defmodule SymphonyElixir.AgentRunner do
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     approval_policy_override = Keyword.get(opts, :approval_policy_override)
 
+    turn_state = %{
+      workspace: workspace,
+      codex_update_recipient: codex_update_recipient,
+      opts: opts,
+      issue_state_fetcher: issue_state_fetcher,
+      turn_number: 1,
+      max_turns: max_turns,
+      runtime_context: runtime_context
+    }
+
     with {:ok, session} <-
            AppServer.start_session(
              workspace,
@@ -90,14 +100,24 @@ defmodule SymphonyElixir.AgentRunner do
              approval_policy_override: approval_policy_override
            ) do
       try do
-        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns, runtime_context)
+        do_run_codex_turns(session, issue, turn_state)
       after
         AppServer.stop_session(session)
       end
     end
   end
 
-  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns, runtime_context) do
+  defp do_run_codex_turns(app_session, issue, turn_state) do
+    %{
+      workspace: workspace,
+      codex_update_recipient: codex_update_recipient,
+      opts: opts,
+      issue_state_fetcher: issue_state_fetcher,
+      turn_number: turn_number,
+      max_turns: max_turns,
+      runtime_context: runtime_context
+    } = turn_state
+
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns, runtime_context)
 
     with {:ok, turn_session} <-
@@ -113,17 +133,7 @@ defmodule SymphonyElixir.AgentRunner do
         {:continue, refreshed_issue} when turn_number < max_turns ->
           Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
-          do_run_codex_turns(
-            app_session,
-            workspace,
-            refreshed_issue,
-            codex_update_recipient,
-            opts,
-            issue_state_fetcher,
-            turn_number + 1,
-            max_turns,
-            runtime_context
-          )
+          do_run_codex_turns(app_session, refreshed_issue, %{turn_state | turn_number: turn_number + 1})
 
         {:continue, refreshed_issue} ->
           Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
@@ -143,26 +153,8 @@ defmodule SymphonyElixir.AgentRunner do
     do: PromptBuilder.build_prompt(issue, Keyword.put(opts, :runtime_context, runtime_context))
 
   defp build_turn_prompt(_issue, _opts, turn_number, max_turns, runtime_context) do
-    branch_guidance =
-      case Map.get(runtime_context, :canonical_branch) do
-        branch when is_binary(branch) and branch != "" ->
-          "- Continue on the canonical issue branch `#{branch}` and do not create a new branch for this issue."
-
-        _ ->
-          nil
-      end
-
-    pr_guidance =
-      case {Map.get(runtime_context, :pr_number), Map.get(runtime_context, :pr_url)} do
-        {number, url} when is_binary(number) and number != "" and is_binary(url) and url != "" ->
-          "- An existing pull request already exists for this issue: `##{number}` at #{url}. Update that PR instead of creating a new one."
-
-        {number, _url} when is_binary(number) and number != "" ->
-          "- An existing pull request already exists for this issue: `##{number}`. Update that PR instead of creating a new one."
-
-        _ ->
-          nil
-      end
+    branch_guidance = branch_guidance(runtime_context)
+    pr_guidance = pr_guidance(runtime_context)
 
     """
     Continuation guidance:
@@ -181,6 +173,29 @@ defmodule SymphonyElixir.AgentRunner do
     """
     |> String.replace("\n\n", "\n")
     |> String.trim()
+  end
+
+  defp branch_guidance(runtime_context) do
+    case Map.get(runtime_context, :canonical_branch) do
+      branch when is_binary(branch) and branch != "" ->
+        "- Continue on the canonical issue branch `#{branch}` and do not create a new branch for this issue."
+
+      _ ->
+        nil
+    end
+  end
+
+  defp pr_guidance(runtime_context) do
+    case {Map.get(runtime_context, :pr_number), Map.get(runtime_context, :pr_url)} do
+      {number, url} when is_binary(number) and number != "" and is_binary(url) and url != "" ->
+        "- An existing pull request already exists for this issue: `##{number}` at #{url}. Update that PR instead of creating a new one."
+
+      {number, _url} when is_binary(number) and number != "" ->
+        "- An existing pull request already exists for this issue: `##{number}`. Update that PR instead of creating a new one."
+
+      _ ->
+        nil
+    end
   end
 
   defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
