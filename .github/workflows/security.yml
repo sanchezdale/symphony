@@ -18,6 +18,10 @@ jobs:
   dependency-vulnerability-scan:
     name: Dependency vulnerability scan
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     with:
       scan-args: |-
         --allow-no-lockfiles
