@@ -17,15 +17,15 @@ permissions:
 jobs:
   dependency-vulnerability-scan:
     name: Dependency vulnerability scan
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.8
-    with:
-      scan-args: |-
-        --recursive
-        ./
-      upload-sarif: false
-      fail-on-vuln: true
-    permissions:
-      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Run OSV-Scanner
+        run: |
+          docker run --rm             -v "${{ github.workspace }}:/workspace"             ghcr.io/google/osv-scanner:v2.3.8             --recursive             /workspace
 
   secret-scan:
     name: Gitleaks secret scan
@@ -58,9 +58,6 @@ jobs:
   workflow-security:
     name: GitHub Actions workflow audit
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
