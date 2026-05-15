@@ -252,6 +252,7 @@ defmodule SymphonyElixir.ManagerConfigTest do
 
     with_temp_file!(env_file, fn path ->
       assert {:ok, env} = ManagerConfig.load_env_file(path)
+
       assert env == %{
                "LINEAR_API_KEY" => "token",
                "SYMPHONY_PROJECT_SLUG" => "leftoff",
@@ -271,6 +272,11 @@ defmodule SymphonyElixir.ManagerConfigTest do
     end)
 
     with_temp_file!("export =oops\n", fn path ->
+      assert {:error, {:config_error, message}} = ManagerConfig.load_env_file(path)
+      assert message =~ "expected KEY=VALUE"
+    end)
+
+    with_temp_file!("BROKEN_QUOTE=\"oops\n", fn path ->
       assert {:error, {:config_error, message}} = ManagerConfig.load_env_file(path)
       assert message =~ "expected KEY=VALUE"
     end)

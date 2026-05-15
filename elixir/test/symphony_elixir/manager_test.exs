@@ -1032,7 +1032,7 @@ defmodule SymphonyElixir.ManagerTest do
       config =
         fixture.config
         |> put_in(["repos", Access.at(0), "port"], repo_port)
-        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "port_range"], %{"start" => 1, "end" => 65_535})
         |> put_in(["manager", "failure_threshold"], 10)
 
       write_config!(fixture.config_path, config)
@@ -1081,7 +1081,7 @@ defmodule SymphonyElixir.ManagerTest do
       failing_config =
         fixture.config
         |> put_in(["repos", Access.at(0), "port"], unavailable_port)
-        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "port_range"], %{"start" => 1, "end" => 65_535})
         |> put_in(["manager", "failure_threshold"], 10)
 
       write_config!(fixture.config_path, failing_config)
@@ -1117,7 +1117,7 @@ defmodule SymphonyElixir.ManagerTest do
       running_config =
         fixture.config
         |> put_in(["repos", Access.at(0), "port"], running_port)
-        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "port_range"], %{"start" => 1, "end" => 65_535})
         |> put_in(["manager", "failure_threshold"], 10)
 
       write_config!(fixture.config_path, running_config)
@@ -1155,7 +1155,7 @@ defmodule SymphonyElixir.ManagerTest do
       config =
         fixture.config
         |> put_in(["repos", Access.at(0), "port"], unavailable_port)
-        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "port_range"], %{"start" => 1, "end" => 65_535})
         |> put_in(["manager", "failure_threshold"], 10)
 
       write_config!(fixture.config_path, config)
@@ -1197,7 +1197,7 @@ defmodule SymphonyElixir.ManagerTest do
       config =
         fixture.config
         |> put_in(["repos", Access.at(0), "port"], repo_port)
-        |> put_in(["manager", "port_range"], %{"start" => 43_101, "end" => 65_535})
+        |> put_in(["manager", "port_range"], %{"start" => 1, "end" => 65_535})
         |> put_in(["manager", "failure_threshold"], 10)
 
       write_config!(fixture.config_path, config)
