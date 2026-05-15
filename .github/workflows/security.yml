@@ -15,16 +15,16 @@ permissions:
   contents: read
 
 jobs:
-dependency-vulnerability-scan:
-  name: Dependency vulnerability scan
-  uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2
-  with:
-    scan-args: |-
-      --allow-no-lockfiles
-      --recursive
-      ./
-    upload-sarif: false
-    fail-on-vuln: true
+  dependency-vulnerability-scan:
+    name: Dependency vulnerability scan
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2
+    with:
+      scan-args: |-
+        --allow-no-lockfiles
+        --recursive
+        ./
+      upload-sarif: false
+      fail-on-vuln: true
 
   secret-scan:
     name: Gitleaks secret scan
