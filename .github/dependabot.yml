@@ -18,30 +18,3 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'deps'
-  - package-ecosystem: npm
-    directory: '/elixir/deps/phoenix'
-    schedule:
-      interval: 'weekly'
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: 'deps'
-  - package-ecosystem: npm
-    directory: '/elixir/deps/phoenix_html'
-    schedule:
-      interval: 'weekly'
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: 'deps'
-  - package-ecosystem: npm
-    directory: '/elixir/deps/phoenix_live_view'
-    schedule:
-      interval: 'weekly'
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: 'deps'
