@@ -34,5 +34,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-
 
+      - name: Install sample workflow config
+        run: |
+          mkdir -p "$HOME/.config/symphony/workflows/elixir"
+          cp ../workflows/sample/WORKFLOW.md "$HOME/.config/symphony/workflows/elixir/WORKFLOW.md"
+
       - name: Verify make all
         run: make all
